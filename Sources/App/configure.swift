@@ -1,23 +1,43 @@
-import NIOSSL
 import Fluent
 import FluentPostgresDriver
 import Vapor
 
-// configures your application
-public func configure(_ app: Application) async throws {
-    // uncomment to serve files from /Public folder
-    // app.middleware.use(FileMiddleware(publicDirectory: app.directory.publicDirectory))
+public func configure(_ app: Application) throws {
+    // Database configuration
+    let hostname = Environment.get("DB_HOST") ?? "localhost"
+    let port = Environment.get("DB_PORT").flatMap(Int.init) ?? 5432
+    let username = Environment.get("DB_USER") ?? "postgres"
+    let password = Environment.get("DB_PASSWORD") ?? ""
+    let database = Environment.get("DB_NAME") ?? "postgres"
 
-    app.databases.use(DatabaseConfigurationFactory.postgres(configuration: .init(
-        hostname: Environment.get("DATABASE_HOST") ?? "localhost",
-        port: Environment.get("DATABASE_PORT").flatMap(Int.init(_:)) ?? SQLPostgresConfiguration.ianaPortNumber,
-        username: Environment.get("DATABASE_USERNAME") ?? "vapor_username",
-        password: Environment.get("DATABASE_PASSWORD") ?? "vapor_password",
-        database: Environment.get("DATABASE_NAME") ?? "vapor_database",
-        tls: .prefer(try .init(configuration: .clientDefault)))
+    var tlsConfiguration: TLSConfiguration?
+    if Environment.get("DB_TLS") == "true" {
+        tlsConfiguration = TLSConfiguration.makeClientConfiguration()
+        tlsConfiguration?.certificateVerification = .none // Adjust as needed
+    }
+
+    // Updated to use the new 'postgres' method with 'PostgresConfiguration'
+    let postgresConfig = PostgresConfiguration(
+        hostname: hostname,
+        port: port,
+        username: username,
+        password: password,
+        database: database,
+        tlsConfiguration: tlsConfiguration
+    )
+
+    app.databases.use(.postgres(
+        configuration: postgresConfig
     ), as: .psql)
 
-    app.migrations.add(CreateTodo())
-    // register routes
+    // Register migrations
+    app.migrations.add(CreateUser())
+    app.migrations.add(CreateFitnessData())
+    app.migrations.add(CreateToken())
+
+    // Automatically run migrations
+    try app.autoMigrate().wait()
+
+    // Register routes
     try routes(app)
 }
