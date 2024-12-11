@@ -157,55 +157,86 @@ class JobScraper:
                 self.data = pd.DataFrame(all_jobs)
                 self.data['scrape_date'] = datetime.now()
                 self.data.dropna(subset=['company', 'vacancy'], inplace=True)
-
+    
     async def parse_glorri(self, session):
         """
-        Glorri job scraper using the correct API endpoints for companies and jobs.
+        Glorri job scraper with comprehensive error handling and modern headers
         """
         logger.info("Started scraping Glorri")
         
-        # Correct API endpoints as provided
+        # API endpoints
         companies_url = "https://atsapp.glorri.com/user-service-v2/companies/public"
         jobs_url = "https://atsapp.glorri.az/job-service-v2/jobs/company/{}/public"
         
+        # Modern browser-like headers
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Origin': 'https://jobs.glorri.az',
-            'Referer': 'https://jobs.glorri.az/'
+            'Referer': 'https://jobs.glorri.az/',
+            'Connection': 'keep-alive',
+            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
         }
         
         try:
             jobs = []
             offset = 0
-            limit = 20  # As specified in the first API
+            limit = 20
+            max_retries = 3
+            retry_delay = 2
             
             while True:
-                # Fetch companies with pagination
+                # Fetch companies with pagination and retry logic
                 companies_params = {
                     'limit': limit,
                     'offset': offset
                 }
                 
-                logger.info(f"Fetching companies with offset {offset}")
-                companies_response = await self.fetch_url_async(
-                    companies_url, 
-                    session, 
-                    params=companies_params,
-                    headers=headers,
-                    verify_ssl=False
-                )
+                companies_response = None
+                for retry in range(max_retries):
+                    try:
+                        logger.info(f"Fetching companies with offset {offset} (Attempt {retry + 1}/{max_retries})")
+                        companies_response = await self.fetch_url_async(
+                            companies_url, 
+                            session, 
+                            params=companies_params,
+                            headers=headers,
+                            verify_ssl=False
+                        )
+                        
+                        if companies_response:
+                            break
+                        
+                        logger.warning(f"Attempt {retry + 1} failed, retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay * (retry + 1))
+                        
+                    except Exception as e:
+                        logger.error(f"Error during company fetch attempt {retry + 1}: {str(e)}")
+                        if retry < max_retries - 1:
+                            await asyncio.sleep(retry_delay * (retry + 1))
+                        else:
+                            logger.error("Max retries exceeded for company fetch")
+                            break
                 
                 if not companies_response:
-                    logger.error(f"Failed to fetch companies at offset {offset}")
+                    logger.error(f"Failed to fetch companies at offset {offset} after all retries")
                     break
                     
-                if isinstance(companies_response, str):
-                    try:
+                try:
+                    if isinstance(companies_response, str):
                         companies_response = json.loads(companies_response)
-                    except json.JSONDecodeError:
-                        logger.error(f"Failed to parse companies response at offset {offset}")
-                        break
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse companies response at offset {offset}: {str(e)}")
+                    break
                 
                 companies = companies_response.get('entities', [])
                 if not companies:
@@ -227,7 +258,7 @@ class JobScraper:
                     
                     # Fetch jobs with pagination
                     job_skip = 0
-                    job_limit = 18  # As specified in the second API
+                    job_limit = 18
                     
                     while True:
                         company_jobs_url = jobs_url.format(company_slug)
@@ -236,24 +267,42 @@ class JobScraper:
                             'limit': job_limit
                         }
                         
-                        jobs_response = await self.fetch_url_async(
-                            company_jobs_url,
-                            session,
-                            params=jobs_params,
-                            headers=headers,
-                            verify_ssl=False
-                        )
+                        # Add retry logic for job fetching
+                        jobs_response = None
+                        for retry in range(max_retries):
+                            try:
+                                jobs_response = await self.fetch_url_async(
+                                    company_jobs_url,
+                                    session,
+                                    params=jobs_params,
+                                    headers=headers,
+                                    verify_ssl=False
+                                )
+                                
+                                if jobs_response:
+                                    break
+                                    
+                                logger.warning(f"Job fetch attempt {retry + 1} failed, retrying...")
+                                await asyncio.sleep(retry_delay * (retry + 1))
+                                
+                            except Exception as e:
+                                logger.error(f"Error during job fetch attempt {retry + 1}: {str(e)}")
+                                if retry < max_retries - 1:
+                                    await asyncio.sleep(retry_delay * (retry + 1))
+                                else:
+                                    logger.error("Max retries exceeded for job fetch")
+                                    break
                         
                         if not jobs_response:
-                            logger.warning(f"No jobs response for {company_name} at skip {job_skip}")
+                            logger.warning(f"No jobs response for {company_name} at skip {job_skip} after all retries")
                             break
                             
-                        if isinstance(jobs_response, str):
-                            try:
+                        try:
+                            if isinstance(jobs_response, str):
                                 jobs_response = json.loads(jobs_response)
-                            except json.JSONDecodeError:
-                                logger.error(f"Failed to parse jobs response for {company_name}")
-                                break
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse jobs response for {company_name}: {str(e)}")
+                            break
                         
                         company_jobs = jobs_response.get('entities', [])
                         if not company_jobs:
@@ -272,24 +321,131 @@ class JobScraper:
                             break
                         
                         job_skip += job_limit
-                        await asyncio.sleep(0.5)  # Small delay between job requests
+                        await asyncio.sleep(1)  # Rate limiting between job batches
                 
                 offset += limit
                 if offset >= total_companies:
                     break
                 
-                await asyncio.sleep(1)  # Small delay between company requests
+                await asyncio.sleep(2)  # Rate limiting between company batches
             
             total_jobs = len(jobs)
-            logger.info(f"Completed scraping. Found {total_jobs} total jobs")
+            logger.info(f"Completed scraping Glorri. Found {total_jobs} total jobs")
             
-            df = pd.DataFrame(jobs)
-            return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            return pd.DataFrame(jobs) if jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
             
         except Exception as e:
-            logger.error(f"Error in Glorri scraper: {str(e)}")
+            logger.error(f"Unexpected error in Glorri scraper: {str(e)}")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-    
+
+    async def scrape_impactpool(self, session):
+        """
+        Impactpool scraper with improved error handling and modern headers
+        """
+        logger.info("Started scraping Impactpool")
+        
+        url = 'https://www.impactpool.org/countries/Azerbaijan'
+        base_url = 'https://www.impactpool.org'
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Pragma': 'no-cache',
+            'Cache-Control': 'no-cache'
+        }
+        
+        try:
+            max_retries = 3
+            retry_delay = 2
+            jobs = []
+            
+            # Implement retry logic
+            for retry in range(max_retries):
+                try:
+                    async with session.get(url, headers=headers, timeout=30) as response:
+                        if response.status == 403:
+                            logger.warning(f"Access forbidden (403) on attempt {retry + 1}/{max_retries}")
+                            if retry < max_retries - 1:
+                                await asyncio.sleep(retry_delay * (retry + 1))
+                                continue
+                            else:
+                                logger.error("Max retries exceeded, all attempts returned 403")
+                                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+                        
+                        response.raise_for_status()
+                        content = await response.text()
+                        
+                        # Parse the content
+                        soup = BeautifulSoup(content, 'html.parser')
+                        job_listings = soup.select('#job_list .job')
+                        
+                        if not job_listings:
+                            logger.warning("No job listings found in the response")
+                            if retry < max_retries - 1:
+                                await asyncio.sleep(retry_delay * (retry + 1))
+                                continue
+                        
+                        # Process job listings
+                        for job in job_listings:
+                            try:
+                                # Extract job details with error handling
+                                title_element = job.select_one('.job-title a.apply-link')
+                                organization_element = job.select_one('.job-organization')
+                                
+                                if title_element:
+                                    title = title_element.get_text(strip=True)
+                                    apply_link = urljoin(base_url, title_element['href'])
+                                    organization = organization_element.get_text(strip=True) if organization_element else "Unknown Organization"
+                                    
+                                    jobs.append({
+                                        'company': organization,
+                                        'vacancy': title,
+                                        'apply_link': apply_link
+                                    })
+                                
+                            except Exception as e:
+                                logger.error(f"Error processing individual job listing: {str(e)}")
+                                continue
+                        
+                        # If we successfully got jobs, break the retry loop
+                        if jobs:
+                            break
+                        
+                except aiohttp.ClientError as e:
+                    logger.error(f"Network error on attempt {retry + 1}: {str(e)}")
+                    if retry < max_retries - 1:
+                        await asyncio.sleep(retry_delay * (retry + 1))
+                    else:
+                        logger.error("Max retries exceeded due to network errors")
+                except Exception as e:
+                    logger.error(f"Unexpected error on attempt {retry + 1}: {str(e)}")
+                    if retry < max_retries - 1:
+                        await asyncio.sleep(retry_delay * (retry + 1))
+                    else:
+                        logger.error("Max retries exceeded due to unexpected errors")
+            
+            total_jobs = len(jobs)
+            logger.info(f"Completed scraping Impactpool. Found {total_jobs} total jobs")
+            
+            return pd.DataFrame(jobs) if jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in Impactpool scraper: {str(e)}")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+        
+        
+        
     async def parse_azercell(self, session):
         logger.info("Started scraping Azercell")
         url = "https://www.azercell.com/az/about-us/career.html"
@@ -2164,34 +2320,6 @@ class JobScraper:
                         'vacancy': vacancy,
                         'apply_link': apply_link
                     })
-
-            return pd.DataFrame(jobs)
-
-    async def scrape_impactpool(self, session):
-        url = 'https://www.impactpool.org/countries/Azerbaijan'
-        base_url = 'https://www.impactpool.org'
-        async with session.get(url) as response:
-            response.raise_for_status()
-            soup = BeautifulSoup(await response.text(), 'html.parser')
-            
-            jobs = []
-            job_listings = soup.select('#job_list .job')
-            for job in job_listings:
-                title_element = job.select_one('.job-title a.apply-link')
-                if title_element:
-                    title = title_element.get_text(strip=True)
-                    apply_link = base_url + title_element['href']
-                else:
-                    title = "No title"
-                    apply_link = "No link"
-                
-                organization = job.select_one('.job-organization').get_text(strip=True) if job.select_one('.job-organization') else "No organization"
-
-                jobs.append({
-                    'company': organization,
-                    'vacancy': title,
-                    'apply_link': apply_link
-                })
 
             return pd.DataFrame(jobs)
 
