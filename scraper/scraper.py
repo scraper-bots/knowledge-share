@@ -12,6 +12,9 @@ import aiohttp
 import asyncio
 import json
 import re
+import random
+import chardet
+from typing import Optional, Union, Dict, Any
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,27 +42,129 @@ class JobScraper:
         }
 
     async def fetch_url_async(self, url, session, params=None, headers=None, verify_ssl=True, retries=3):
+        """
+        Asynchronously fetch data from a URL with comprehensive error handling and retry logic.
+        
+        Args:
+            url (str): The URL to fetch
+            session (aiohttp.ClientSession): The aiohttp session to use
+            params (dict, optional): Query parameters to include in the request
+            headers (dict, optional): Headers to include in the request
+            verify_ssl (bool): Whether to verify SSL certificates
+            retries (int): Number of retry attempts for failed requests
+        
+        Returns:
+            dict/str: JSON response or text content, None if all retries fail
+        """
+        default_headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0'
+        }
+        
+        # Merge default headers with provided headers
+        request_headers = {**default_headers, **(headers or {})}
+        
+        # Configure timeout for each request
+        timeout = aiohttp.ClientTimeout(
+            total=30,        # Total timeout
+            connect=10,      # Connection timeout
+            sock_read=10,    # Socket read timeout
+            sock_connect=10  # Socket connect timeout
+        )
+        
         for attempt in range(retries):
             try:
-                async with session.get(url, params=params, headers=headers, ssl=verify_ssl) as response:
-                    response.raise_for_status()
+                # Calculate exponential backoff delay
+                backoff_delay = (2 ** attempt) + random.uniform(0, 1)
+                
+                if attempt > 0:
+                    logger.info(f"Retry attempt {attempt + 1}/{retries} for {url} after {backoff_delay:.2f}s delay")
+                    await asyncio.sleep(backoff_delay)
+                
+                async with session.get(
+                    url,
+                    params=params,
+                    headers=request_headers,
+                    ssl=verify_ssl,
+                    timeout=timeout,
+                    allow_redirects=True
+                ) as response:
+                    # Log request details for debugging
+                    logger.debug(f"Request to {url} - Status: {response.status}")
+                    
+                    try:
+                        response.raise_for_status()
+                    except aiohttp.ClientResponseError as e:
+                        if e.status == 404:
+                            logger.warning(f"Resource not found: {url}")
+                            return None
+                        elif e.status == 403:
+                            logger.warning(f"Access forbidden: {url}")
+                            # Might want to adjust headers or use different approach
+                            raise
+                        elif e.status >= 500:
+                            if attempt < retries - 1:
+                                continue  # Retry on server errors
+                            raise
+                        else:
+                            raise
+
                     content_type = response.headers.get('Content-Type', '').lower()
                     
-                    if 'application/json' in content_type:
-                        return await response.json()
-                    else:
-                        try:
-                            return await response.text(encoding='utf-8')
-                        except UnicodeDecodeError:
-                            return await response.text(encoding='latin-1')
-
-            except aiohttp.ClientError as e:
-                logger.error(f"Request to {url} failed: {e}")
-                if attempt < retries - 1:
-                    await asyncio.sleep(2 ** attempt)
-                else:
-                    logger.error(f"Failed to fetch {url} after {retries} attempts.")
+                    try:
+                        if 'application/json' in content_type:
+                            return await response.json()
+                        else:
+                            # Try UTF-8 first, fall back to other encodings if needed
+                            try:
+                                return await response.text(encoding='utf-8')
+                            except UnicodeDecodeError:
+                                try:
+                                    return await response.text(encoding='latin-1')
+                                except UnicodeDecodeError:
+                                    # Last resort: try to detect encoding
+                                    raw_content = await response.read()
+                                    encoding = chardet.detect(raw_content)['encoding']
+                                    return raw_content.decode(encoding or 'utf-8', errors='replace')
+                    
+                    except asyncio.TimeoutError:
+                        logger.error(f"Timeout reading response from {url}")
+                        if attempt < retries - 1:
+                            continue
+                        return None
+                    
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse JSON from {url}: {e}")
+                        return await response.text()  # Return raw text if JSON parsing fails
+                    
+            except aiohttp.ClientConnectorError as e:
+                logger.error(f"Connection error for {url}: {e}")
+                if attempt == retries - 1:
                     return None
+                    
+            except aiohttp.ClientError as e:
+                logger.error(f"Client error for {url}: {e}")
+                if attempt == retries - 1:
+                    return None
+                    
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout connecting to {url}")
+                if attempt == retries - 1:
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"Unexpected error fetching {url}: {str(e)}")
+                if attempt == retries - 1:
+                    return None
+
+        logger.error(f"Failed to fetch {url} after {retries} attempts")
+        return None
+        
+
 
     def save_to_db(self, df, batch_size=100):
         if df.empty:
@@ -93,70 +198,112 @@ class JobScraper:
             logger.error(f"Error saving data to the database: {error}")
 
     async def get_data_async(self):
-        async with aiohttp.ClientSession() as session:
-            parsers = [
-                self.parse_glorri(session),
-                self.parse_azercell(session),
-                self.parse_azerconnect(session),
-                self.parse_djinni_co(session),
-                self.parse_abb(session),
-                self.parse_hellojob_az(session),
-                self.parse_boss_az(session),
-                self.parse_ejob_az(session),
-                self.parse_vakansiya_az(session),
-                self.parse_ishelanlari_az(session),
-                self.parse_banker_az(session),
-                self.parse_smartjob_az(session),
-                self.parse_offer_az(session),
-                self.parse_isveren_az(session),
-                self.parse_isqur(session),
-                self.parse_kapitalbank(session),
-                self.parse_bank_of_baku_az(session),
-                self.parse_jobbox_az(session),
-                self.parse_vakansiya_biz(session),
-                self.parse_its_gov(session),
-                self.parse_is_elanlari_iilkin(session),
-                self.parse_talhunt_az(session),
-                self.parse_tabib_vacancies(session),
-                self.parse_projobs_vacancies(session),
-                self.parse_azergold(session),
-                self.parse_konsis(session),
-                self.parse_baku_electronics(session),
-                self.parse_asco(session),
-                self.parse_cbar(session),
-                self.parse_ada(session),
-                self.parse_jobfinder(session),
-                self.scrape_regulator(session),
-                self.scrape_ekaryera(session),
-                self.scrape_bravosupermarket(session),
-                self.scrape_mdm(session),
-                self.scrape_arti(session),
-                self.scrape_staffy(session),
-                self.scrape_position_az(session),
-                self.scrape_hrin_co(session),
-                self.scrape_un_jobs(session),
-                self.scrape_oilfund_jobs(session),
-                self.scrape_1is_az(session),
-                self.scrape_themuse_api(session),
-                self.scrape_dejobs(session),
-                self.scrape_hcb(session),
-                self.scrape_impactpool(session),
-                self.scrape_bfb(session),
-                self.scrape_airswift(session),
-                self.scrape_orion(session),
-                self.scrape_hrcbaku(session),
-                self.parse_jobsearch_az(session),
-                self.scrape_canscreen(session),
-            ]
+        """
+        Asynchronously fetch job data from multiple sources with improved error handling
+        and connection management.
+        """
+        # Configure session timeout and connection parameters
+        timeout = aiohttp.ClientTimeout(total=60)  # 60 second total timeout
+        connector = aiohttp.TCPConnector(
+            limit=50,  # Limit concurrent connections
+            ttl_dns_cache=300,  # DNS cache TTL in seconds
+            ssl=False  # Disable SSL verification for problematic sites
+        )
 
-            all_jobs = await asyncio.gather(*parsers)
-            all_jobs = [job for job_list in all_jobs if isinstance(job_list, pd.DataFrame) and not job_list.empty 
-                       for job in job_list.to_dict('records')]
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            connector=connector,
+            raise_for_status=True
+        ) as session:
+            try:
+                # Define all parser tasks
+                parsers = [
+                    self.parse_glorri(session),
+                    self.parse_azercell(session),
+                    self.parse_azerconnect(session),
+                    self.parse_djinni_co(session),
+                    self.parse_abb(session),
+                    self.parse_hellojob_az(session),
+                    self.parse_boss_az(session),
+                    self.parse_ejob_az(session),
+                    self.parse_vakansiya_az(session),
+                    self.parse_ishelanlari_az(session),
+                    self.parse_banker_az(session),
+                    self.parse_smartjob_az(session),
+                    self.parse_offer_az(session),
+                    self.parse_isveren_az(session),
+                    self.parse_isqur(session),
+                    self.parse_kapitalbank(session),
+                    self.parse_bank_of_baku_az(session),
+                    self.parse_jobbox_az(session),
+                    self.parse_vakansiya_biz(session),
+                    self.parse_its_gov(session),
+                    self.parse_is_elanlari_iilkin(session),
+                    self.parse_talhunt_az(session),
+                    self.parse_tabib_vacancies(session),
+                    self.parse_projobs_vacancies(session),
+                    self.parse_azergold(session),
+                    self.parse_konsis(session),
+                    self.parse_baku_electronics(session),
+                    self.parse_asco(session),
+                    self.parse_cbar(session),
+                    self.parse_ada(session),
+                    self.parse_jobfinder(session),
+                    self.scrape_regulator(session),
+                    self.scrape_ekaryera(session),
+                    self.scrape_bravosupermarket(session),
+                    self.scrape_mdm(session),
+                    self.scrape_arti(session),
+                    self.scrape_staffy(session),
+                    self.scrape_position_az(session),
+                    self.scrape_hrin_co(session),
+                    self.scrape_un_jobs(session),
+                    self.scrape_oilfund_jobs(session),
+                    self.scrape_1is_az(session),
+                    self.scrape_themuse_api(session),
+                    self.scrape_dejobs(session),
+                    self.scrape_hcb(session),
+                    self.scrape_impactpool(session),
+                    self.scrape_bfb(session),
+                    self.scrape_airswift(session),
+                    self.scrape_orion(session),
+                    self.scrape_hrcbaku(session),
+                    self.parse_jobsearch_az(session),
+                    self.scrape_canscreen(session),
+                ]
 
-            if all_jobs:
-                self.data = pd.DataFrame(all_jobs)
-                self.data['scrape_date'] = datetime.now()
-                self.data.dropna(subset=['company', 'vacancy'], inplace=True)
+                # Execute all parsers concurrently with error handling
+                all_jobs_results = await asyncio.gather(*parsers, return_exceptions=True)
+                
+                # Process results, handling any exceptions
+                all_jobs = []
+                for result in all_jobs_results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Parser error: {result}")
+                        continue
+                    if isinstance(result, pd.DataFrame) and not result.empty:
+                        all_jobs.extend(result.to_dict('records'))
+                
+                # Create final DataFrame if we have data
+                if all_jobs:
+                    logger.info(f"Successfully collected {len(all_jobs)} jobs")
+                    self.data = pd.DataFrame(all_jobs)
+                    self.data['scrape_date'] = datetime.now()
+                    self.data.dropna(subset=['company', 'vacancy'], inplace=True)
+                    logger.info(f"Final dataset contains {len(self.data)} valid jobs after cleaning")
+                else:
+                    logger.warning("No jobs were collected from any source")
+                    self.data = pd.DataFrame(columns=['company', 'vacancy', 'apply_link', 'scrape_date'])
+
+            except Exception as e:
+                logger.error(f"Critical error in get_data_async: {str(e)}")
+                self.data = pd.DataFrame(columns=['company', 'vacancy', 'apply_link', 'scrape_date'])
+                raise
+
+            finally:
+                # Ensure session is properly closed
+                if not session.closed:
+                    await session.close()
     
     async def parse_glorri(self, session):
         """
