@@ -14,7 +14,8 @@ import json
 import re
 import random
 import chardet
-from typing import Optional, Union, Dict, Any
+import functools
+from typing import Optional, Union, Dict, Any, Callable
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,44 +42,96 @@ class JobScraper:
             'port': os.getenv('DB_PORT')
         }
 
+    async def log_scraper_error(self, scraper_method: str, error_code: str, error_message: str, url: str = None, retry_count: int = None):
+        """
+        Logs scraping errors to the database.
+        """
+        try:
+            with psycopg2.connect(**self.db_params) as conn:
+                with conn.cursor() as cur:
+                    # Create table if it doesn't exist
+                    create_table_query = sql.SQL("""
+                        CREATE TABLE IF NOT EXISTS scraper_errors (
+                            id SERIAL PRIMARY KEY,
+                            scraper_method VARCHAR(255) NOT NULL,
+                            error_code VARCHAR(50) NOT NULL,
+                            error_message TEXT NOT NULL,
+                            url TEXT,
+                            retry_count INTEGER,
+                            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            is_resolved BOOLEAN DEFAULT FALSE
+                        )
+                    """)
+                    cur.execute(create_table_query)
+
+                    # Insert error record
+                    insert_query = sql.SQL("""
+                        INSERT INTO scraper_errors 
+                        (scraper_method, error_code, error_message, url, retry_count)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """)
+                    
+                    cur.execute(insert_query, (
+                        scraper_method,
+                        str(error_code),
+                        str(error_message),
+                        url,
+                        retry_count
+                    ))
+                    conn.commit()
+                    logger.info(f"Error logged for {scraper_method}")
+        except Exception as e:
+            logger.error(f"Failed to log error to database: {e}")
+
+    def scraper_error_handler(func: Callable) -> Callable:
+        """
+        Decorator to handle error logging for scraper methods.
+        """
+        @functools.wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            method_name = func.__name__
+            try:
+                return await func(self, *args, **kwargs)
+            except Exception as e:
+                error_code = type(e).__name__
+                error_message = str(e)
+                
+                # Get URL from common error patterns
+                url = None
+                if hasattr(e, 'url'):
+                    url = e.url
+                elif len(args) > 0 and isinstance(args[0], str):
+                    url = args[0]
+                elif 'url' in kwargs:
+                    url = kwargs['url']
+                
+                await self.log_scraper_error(
+                    scraper_method=method_name,
+                    error_code=error_code,
+                    error_message=error_message,
+                    url=url
+                )
+                
+                # Return empty DataFrame on error as per your existing pattern
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+        return wrapper
+
     async def fetch_url_async(self, url, session, params=None, headers=None, verify_ssl=True, retries=3):
         """
-        Asynchronously fetch data from a URL with comprehensive error handling and retry logic.
-        
-        Args:
-            url (str): The URL to fetch
-            session (aiohttp.ClientSession): The aiohttp session to use
-            params (dict, optional): Query parameters to include in the request
-            headers (dict, optional): Headers to include in the request
-            verify_ssl (bool): Whether to verify SSL certificates
-            retries (int): Number of retry attempts for failed requests
-        
-        Returns:
-            dict/str: JSON response or text content, None if all retries fail
+        Asynchronously fetch data from a URL with improved error handling.
         """
         default_headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0'
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive'
         }
         
-        # Merge default headers with provided headers
         request_headers = {**default_headers, **(headers or {})}
-        
-        # Configure timeout for each request
-        timeout = aiohttp.ClientTimeout(
-            total=30,        # Total timeout
-            connect=10,      # Connection timeout
-            sock_read=10,    # Socket read timeout
-            sock_connect=10  # Socket connect timeout
-        )
         
         for attempt in range(retries):
             try:
-                # Calculate exponential backoff delay
                 backoff_delay = (2 ** attempt) + random.uniform(0, 1)
                 
                 if attempt > 0:
@@ -90,82 +143,105 @@ class JobScraper:
                     params=params,
                     headers=request_headers,
                     ssl=verify_ssl,
-                    timeout=timeout,
-                    allow_redirects=True
+                    timeout=30
                 ) as response:
-                    # Log request details for debugging
-                    logger.debug(f"Request to {url} - Status: {response.status}")
-                    
                     try:
                         response.raise_for_status()
-                    except aiohttp.ClientResponseError as e:
-                        if e.status == 404:
-                            logger.warning(f"Resource not found: {url}")
-                            return None
-                        elif e.status == 403:
-                            logger.warning(f"Access forbidden: {url}")
-                            # Might want to adjust headers or use different approach
-                            raise
-                        elif e.status >= 500:
-                            if attempt < retries - 1:
-                                continue  # Retry on server errors
-                            raise
-                        else:
-                            raise
-
-                    content_type = response.headers.get('Content-Type', '').lower()
-                    
-                    try:
+                        
+                        # Handle different content types
+                        content_type = response.headers.get('Content-Type', '').lower()
+                        
                         if 'application/json' in content_type:
                             return await response.json()
                         else:
-                            # Try UTF-8 first, fall back to other encodings if needed
+                            # Try different encodings
                             try:
                                 return await response.text(encoding='utf-8')
                             except UnicodeDecodeError:
                                 try:
-                                    return await response.text(encoding='latin-1')
-                                except UnicodeDecodeError:
-                                    # Last resort: try to detect encoding
-                                    raw_content = await response.read()
-                                    encoding = chardet.detect(raw_content)['encoding']
-                                    return raw_content.decode(encoding or 'utf-8', errors='replace')
+                                    # Try reading as bytes and detect encoding
+                                    content = await response.read()
+                                    detected = chardet.detect(content)
+                                    encoding = detected['encoding'] or 'utf-8'
+                                    return content.decode(encoding, errors='replace')
+                                except Exception as e:
+                                    if attempt == retries - 1:
+                                        await self.log_scraper_error(
+                                            scraper_method="fetch_url_async",
+                                            error_code="DecodingError",
+                                            error_message=f"Failed to decode content: {str(e)}",
+                                            url=url,
+                                            retry_count=attempt + 1
+                                        )
+                                    continue
                     
-                    except asyncio.TimeoutError:
-                        logger.error(f"Timeout reading response from {url}")
-                        if attempt < retries - 1:
-                            continue
-                        return None
-                    
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse JSON from {url}: {e}")
-                        return await response.text()  # Return raw text if JSON parsing fails
-                    
-            except aiohttp.ClientConnectorError as e:
-                logger.error(f"Connection error for {url}: {e}")
-                if attempt == retries - 1:
-                    return None
-                    
+                    except aiohttp.ClientResponseError as e:
+                        if e.status == 404:
+                            if attempt == retries - 1:
+                                await self.log_scraper_error(
+                                    scraper_method="fetch_url_async",
+                                    error_code="ClientResponseError",
+                                    error_message=f"{e.status}, message='{e.message}', url='{url}'",
+                                    url=url,
+                                    retry_count=attempt + 1
+                                )
+                            return None
+                        elif e.status == 403:
+                            # For 403 errors, try with different headers or delay
+                            if attempt < retries - 1:
+                                request_headers['Referer'] = url
+                                continue
+                            await self.log_scraper_error(
+                                scraper_method="fetch_url_async",
+                                error_code="Forbidden",
+                                error_message=f"Access forbidden: {url}",
+                                url=url,
+                                retry_count=attempt + 1
+                            )
+                            return None
+                        raise
+                            
             except aiohttp.ClientError as e:
-                logger.error(f"Client error for {url}: {e}")
                 if attempt == retries - 1:
-                    return None
-                    
+                    await self.log_scraper_error(
+                        scraper_method="fetch_url_async",
+                        error_code="ClientError",
+                        error_message=str(e),
+                        url=url,
+                        retry_count=attempt + 1
+                    )
+                if attempt < retries - 1:
+                    continue
+                return None
+                
             except asyncio.TimeoutError:
-                logger.error(f"Timeout connecting to {url}")
                 if attempt == retries - 1:
-                    return None
-                    
+                    await self.log_scraper_error(
+                        scraper_method="fetch_url_async",
+                        error_code="TimeoutError",
+                        error_message=f"Timeout connecting to {url}",
+                        url=url,
+                        retry_count=attempt + 1
+                    )
+                if attempt < retries - 1:
+                    continue
+                return None
+                
             except Exception as e:
-                logger.error(f"Unexpected error fetching {url}: {str(e)}")
                 if attempt == retries - 1:
-                    return None
-
-        logger.error(f"Failed to fetch {url} after {retries} attempts")
-        return None
+                    await self.log_scraper_error(
+                        scraper_method="fetch_url_async",
+                        error_code=type(e).__name__,
+                        error_message=str(e),
+                        url=url,
+                        retry_count=attempt + 1
+                    )
+                if attempt < retries - 1:
+                    continue
+                return None
         
-
-
+        return None
+    
     def save_to_db(self, df, batch_size=100):
         if df.empty:
             logger.warning("No data to save to the database.")
@@ -304,7 +380,8 @@ class JobScraper:
                 # Ensure session is properly closed
                 if not session.closed:
                     await session.close()
-    
+                    
+    @scraper_error_handler
     async def parse_glorri(self, session):
         """
         Glorri job scraper with comprehensive error handling and modern headers
@@ -484,7 +561,8 @@ class JobScraper:
         except Exception as e:
             logger.error(f"Unexpected error in Glorri scraper: {str(e)}")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+        
+    @scraper_error_handler
     async def scrape_impactpool(self, session):
         """
         Impactpool scraper with improved error handling and modern headers
@@ -591,8 +669,7 @@ class JobScraper:
             logger.error(f"Unexpected error in Impactpool scraper: {str(e)}")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
         
-        
-        
+    @scraper_error_handler
     async def parse_azercell(self, session):
         logger.info("Started scraping Azercell")
         url = "https://www.azercell.com/az/about-us/career.html"
@@ -629,7 +706,8 @@ class JobScraper:
 
         logger.info("Completed scraping Azercell")
         return pd.DataFrame(jobs_data)
-
+    
+    @scraper_error_handler
     async def parse_azerconnect(self, session):
         logger.info("Started scraping Azerconnect")
         url = "https://www.azerconnect.az/vacancies"
@@ -694,7 +772,8 @@ class JobScraper:
 
         logger.info("Completed scraping Azerconnect")
         return pd.DataFrame(jobs_data)
-
+    
+    @scraper_error_handler
     async def parse_djinni_co(self, session):
         pages = 17
         logger.info(f"Started scraping djinni.co for the first {pages} pages")
@@ -749,7 +828,8 @@ class JobScraper:
             logger.info("=" * 40)
 
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+    
+    @scraper_error_handler
     async def parse_abb(self, session):
         logger.info("Scraping starting for ABB")
         base_url = "https://careers.abb-bank.az/api/vacancy/v2/get"
@@ -783,7 +863,8 @@ class JobScraper:
         df = pd.DataFrame(job_vacancies)
         logger.info("ABB scraping completed")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+    
+    @scraper_error_handler
     async def parse_busy_az(self, session):
         logger.info("Scraping started for busy.az")
         job_vacancies = []
@@ -808,7 +889,8 @@ class JobScraper:
         df = pd.DataFrame(job_vacancies)
         logger.info("Scraping completed for busy.az")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+    
+    @scraper_error_handler
     async def parse_hellojob_az(self, session):
         logger.info("Started scraping of hellojob.az")
         job_vacancies = []
@@ -835,6 +917,7 @@ class JobScraper:
         return pd.DataFrame(job_vacancies) if job_vacancies else pd.DataFrame(
             columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_boss_az(self, session):
         logger.info("Starting to scrape Boss.az...")
         job_vacancies = []
@@ -859,6 +942,7 @@ class JobScraper:
         return pd.DataFrame(job_vacancies) if job_vacancies else pd.DataFrame(
             columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_ejob_az(self, session):
         start_page = 1
         end_page = 20
@@ -899,7 +983,8 @@ class JobScraper:
 
         logger.info("Scraping completed for ejob.az")
         return pd.DataFrame(all_jobs) if all_jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-        
+    
+    @scraper_error_handler
     async def parse_vakansiya_az(self, session):
         logger.info("Scraping started for vakansiya.az")
         url = 'https://www.vakansiya.az/az/'
@@ -926,7 +1011,8 @@ class JobScraper:
         else:
             logger.error("Failed to retrieve the page.")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+        
+    @scraper_error_handler
     async def parse_ishelanlari_az(self, session):
         logger.info("Scraping started for ishelanlari.az")
         url = "https://ishelanlari.az/az/vacancies//0/360/"
@@ -957,7 +1043,8 @@ class JobScraper:
         else:
             logger.error("Failed to retrieve data for ishelanlari.az.")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+        
+    @scraper_error_handler
     async def parse_banker_az(self, session):
         logger.info("Started scraping Banker.az")
         base_url = 'https://banker.az/vakansiyalar'
@@ -1001,7 +1088,8 @@ class JobScraper:
         df = pd.DataFrame({'company': all_company_names, 'vacancy': all_job_titles, 'apply_link': all_apply_links})
         logger.info("Scraping completed for Banker.az")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+    
+    @scraper_error_handler
     async def parse_smartjob_az(self, session):
         logger.info("Started scraping SmartJob.az")
         jobs = []
@@ -1041,7 +1129,8 @@ class JobScraper:
 
         logger.info("Scraping completed for SmartJob.az")
         return pd.DataFrame(jobs) if jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+    
+    @scraper_error_handler
     async def parse_offer_az(self, session):
         logger.info("Started scraping offer.az")
         base_url = "https://www.offer.az/is-elanlari/page/"
@@ -1097,6 +1186,7 @@ class JobScraper:
         logger.info("Scraping completed for offer.az")
         return pd.DataFrame(all_jobs) if all_jobs else pd.DataFrame(columns=['vacancy', 'company', 'location', 'apply_link', 'description'])
 
+    @scraper_error_handler
     async def parse_isveren_az(self, session):
         start_page = 1
         end_page = 15
@@ -1154,6 +1244,7 @@ class JobScraper:
         logger.info("Scraping completed for isveren.az")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_isqur(self, session):
         start_page = 1
         end_page = 5
@@ -1179,6 +1270,7 @@ class JobScraper:
         logger.info("Scraping completed for isqur.com")
         return pd.DataFrame(job_vacancies) if job_vacancies else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_kapitalbank(self, session):
         logger.info("Fetching jobs from Kapital Bank API")
         url = "https://apihr.kapitalbank.az/api/Vacancy/vacancies?Skip=0&Take=150&SortField=id&OrderBy=true"
@@ -1203,7 +1295,8 @@ class JobScraper:
         else:
             logger.error("Failed to fetch data from Kapital Bank API.")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+        
+    @scraper_error_handler
     async def parse_bank_of_baku_az(self, session):
         logger.info("Scraping started for Bank of Baku")
         url = "https://careers.bankofbaku.com/az/vacancies"
@@ -1236,6 +1329,7 @@ class JobScraper:
             logger.error("Failed to retrieve data for Bank of Baku.")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_jobbox_az(self, session):
         start_page=1
         end_page=10
@@ -1284,6 +1378,7 @@ class JobScraper:
         logger.info(df)
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_vakansiya_biz(self, session):
         logger.info("Started scraping Vakansiya.biz")
         base_url = "https://api.vakansiya.biz/api/v1/vacancies/search"
@@ -1320,6 +1415,7 @@ class JobScraper:
         logger.info("Scraping completed for Vakansiya.biz")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_its_gov(self, session):
         start_page = 1
         end_page = 20
@@ -1358,6 +1454,7 @@ class JobScraper:
         logger.info("Scraping completed for its.gov.az")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_is_elanlari_iilkin(self, session):
         logger.info("Started scraping is-elanlari.iilkin.com")
         base_url = 'http://is-elanlari.iilkin.com/vakansiyalar/'
@@ -1398,6 +1495,7 @@ class JobScraper:
             logger.warning("No job listings found")
             return pd.DataFrame(columns=['vacancy', 'company', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_talhunt_az(self, session):
         logger.info("Started scraping Talhunt.az")
         base_url = "https://talhunt.az/api/v1/jobs"  # Updated URL
@@ -1438,7 +1536,8 @@ class JobScraper:
         except Exception as e:
             logger.error(f"Error in Talhunt scraper: {e}")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-    
+
+    @scraper_error_handler
     async def parse_tabib_vacancies(self, session):
         logger.info("Started scraping TABIB vacancies")
         url = "https://tabib.gov.az/az/vakansiya"  # Updated URL
@@ -1470,7 +1569,8 @@ class JobScraper:
         except Exception as e:
             logger.error(f"Error scraping TABIB: {e}")
         return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+    
+    @scraper_error_handler
     async def parse_projobs_vacancies(self, session):
         """Fetch and parse job vacancies from Projobs API."""
         data = []
@@ -1522,6 +1622,7 @@ class JobScraper:
             logger.warning("No vacancies found in the API response.")
             return pd.DataFrame(columns=["company", "vacancy", "apply_link"])
 
+    @scraper_error_handler
     async def parse_azergold(self, session):
         logger.info("Started scraping AzerGold")
         url = "https://careers.azergold.az/"
@@ -1558,6 +1659,7 @@ class JobScraper:
 
         return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_konsis(self, session):
         logger.info("Started scraping Konsis")
         url = "https://konsis.az/karyera-vakansiya/"
@@ -1610,6 +1712,7 @@ class JobScraper:
 
         return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_baku_electronics(self, session):
         logger.info("Started scraping Baku Electronics")
         base_url = "https://careers.bakuelectronics.az/az/vacancies/?p="
@@ -1666,6 +1769,7 @@ class JobScraper:
         logger.info("Scraping completed for Baku Electronics")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_asco(self, session):
         logger.info("Started scraping ASCO")
         base_url = "https://www.asco.az/az/pages/6/65?page="
@@ -1714,6 +1818,7 @@ class JobScraper:
         logger.info("Scraping completed for ASCO")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_cbar(self, session):
         logger.info("Started scraping CBAR")
         url = "https://www.cbar.az/hr/f?p=100:106"
@@ -1771,6 +1876,7 @@ class JobScraper:
             logger.error("Failed to fetch the page.")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_ada(self, session):
         logger.info("Started scraping ADA University")
 
@@ -1812,6 +1918,7 @@ class JobScraper:
             logger.error("Failed to fetch the page.")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def parse_jobfinder(self, session):
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -1852,6 +1959,7 @@ class JobScraper:
             logger.warning("No job listings found on JobFinder.")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_regulator(self, session):
         url = "https://regulator.gov.az/az/vakansiyalar/vakansiyalar_611"
         headers = {
@@ -1893,6 +2001,7 @@ class JobScraper:
         logger.info("Scraping completed for regulator.gov.az")
         return df
 
+    @scraper_error_handler
     async def scrape_ekaryera(self, session):
         page_limit = 5
         base_url = "https://www.ekaryera.az/vakansiyalar?page="
@@ -1932,6 +2041,7 @@ class JobScraper:
         logger.info("Scraping completed for ekaryera.az")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_bravosupermarket(self, session):
         base_url = "https://www.bravosupermarket.az/career/all-vacancies/"
         headers = {
@@ -1962,7 +2072,8 @@ class JobScraper:
         df = pd.DataFrame(job_data)
         logger.info("Scraping completed for Bravo Supermarket")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-        
+
+    @scraper_error_handler
     async def scrape_mdm(self, session):
         base_url = "https://www.mdm.gov.az/karyera"
         headers = {
@@ -2009,6 +2120,7 @@ class JobScraper:
         logger.info("Scraping completed for Milli Depozit Mərkəzi")
         return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_arti(self, session):
         logger.info("Scraping started for ARTI")
         base_url = "https://arti.edu.az/media/vakansiyalar"
@@ -2042,6 +2154,7 @@ class JobScraper:
         logger.info("Scraping completed for ARTI")
         return pd.DataFrame(job_data) if job_data else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_ziraat(self, session):
         base_url = 'https://ziraatbank.az'
         url = 'https://ziraatbank.az/az/vacancies2'
@@ -2075,7 +2188,8 @@ class JobScraper:
             })
 
         return pd.DataFrame(jobs) if jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-
+    
+    @scraper_error_handler
     async def scrape_staffy(self, session):
         async def fetch_jobs(page=1):
             url = "https://api.staffy.az/graphql"
@@ -2183,7 +2297,8 @@ class JobScraper:
         # Return only the specific columns with renamed columns
         result_df = jobs_df[['company', 'vacancy', 'apply_link']]
         return result_df
-
+    
+    @scraper_error_handler
     async def scrape_position_az(self, session):
         url = 'https://position.az'
 
@@ -2227,6 +2342,7 @@ class JobScraper:
                 logger.error(f"Failed to retrieve the webpage. Status code: {response.status}")
                 return pd.DataFrame(columns=['vacancy', 'company', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_hrin_co(self, session):
         base_url = 'https://hrin.co/?page={}'
         job_listings = []
@@ -2258,6 +2374,7 @@ class JobScraper:
         df = pd.DataFrame(job_listings)
         return df
 
+    @scraper_error_handler
     async def scrape_un_jobs(self, session):
         logger.info("Scraping started for UN")
         url = 'https://azerbaijan.un.org/az/jobs'
@@ -2302,6 +2419,7 @@ class JobScraper:
                 logger.error(f"Failed to retrieve the webpage. Status code: {response.status}")
                 return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_oilfund_jobs(self, session):
         url = 'https://oilfund.az/fund/career-opportunities/vacancy'
         async with session.get(url, verify_ssl=False) as response:
@@ -2329,6 +2447,7 @@ class JobScraper:
                 logger.error(f"Failed to retrieve the webpage. Status code: {response.status}")
                 return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_1is_az(self, session):
         logger.info('Scraping started for 1is.az')
         pages = 3
@@ -2382,6 +2501,7 @@ class JobScraper:
         
         return pd.DataFrame(job_listings, columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_themuse_api(self, session):
         api_url = "https://www.themuse.com/api/search-renderer/jobs"
         params = {
@@ -2418,6 +2538,7 @@ class JobScraper:
 
         return pd.DataFrame(jobs, columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_dejobs(self, session):
         url = "https://dejobs.org/aze/jobs/#1"
         async with session.get(url) as response:
@@ -2447,6 +2568,7 @@ class JobScraper:
 
             return pd.DataFrame(jobs, columns=['company', 'vacancy', 'apply_link'])
 
+    @scraper_error_handler
     async def scrape_hcb(self, session):
         url = 'https://hcb.az/'
         async with session.get(url) as response:
@@ -2469,7 +2591,8 @@ class JobScraper:
                     })
 
             return pd.DataFrame(jobs)
-
+        
+    @scraper_error_handler
     async def scrape_bfb(self, session):
         url = "https://www.bfb.az/en/careers"
         async with session.get(url) as response:
@@ -2489,6 +2612,7 @@ class JobScraper:
                 "apply_link" : 'https://www.bfb.az/en/careers',
             })
 
+    @scraper_error_handler
     async def scrape_airswift(self, session):
         url = "https://www.airswift.com/jobs?search=&location=Baku&verticals_discipline=*&sector=*&employment_type=*&date_published=*"
         async with session.get(url) as response:
@@ -2513,7 +2637,8 @@ class JobScraper:
                 'vacancy': titles,
                 "apply_link": apply_links
             })
-
+            
+    @scraper_error_handler
     async def scrape_orion(self, session):
         async def get_orion_jobs(page):
             url = f"https://www.orionjobs.com/jobs/azerbaijan-office?page={page}"
@@ -2550,7 +2675,8 @@ class JobScraper:
         else:
             logger.info("No jobs data to save")
             return pd.DataFrame()
-
+        
+    @scraper_error_handler
     async def scrape_hrcbaku(self, session):
         url = "https://hrcbaku.com/jobs-1"
         headers = {
@@ -2592,6 +2718,7 @@ class JobScraper:
             
             return pd.DataFrame(jobs)
  
+    @scraper_error_handler
     async def parse_jobsearch_az(self, session):
         """Fetch job data from Jobsearch.az and return a DataFrame."""
         # Initial request to obtain cookies
@@ -2676,6 +2803,7 @@ class JobScraper:
         df = pd.DataFrame(job_listings, columns=['vacancy', 'company', 'apply_link'])
         return df
 
+    @scraper_error_handler
     async def scrape_canscreen(self, session):
         """
         Scrape vacancies from the CanScreen API and return the data as a DataFrame
