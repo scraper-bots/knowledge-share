@@ -315,7 +315,7 @@ class JobScraper:
                     self.parse_vakansiya_biz(session),
                     self.parse_its_gov(session),
                     self.parse_is_elanlari_iilkin(session),
-                    self.parse_talhunt_az(session),
+                    # self.parse_talhunt_az(session),
                     self.parse_tabib_vacancies(session),
                     self.parse_projobs_vacancies(session),
                     self.parse_azergold(session),
@@ -1495,47 +1495,47 @@ class JobScraper:
             logger.warning("No job listings found")
             return pd.DataFrame(columns=['vacancy', 'company', 'apply_link'])
 
-    @scraper_error_handler
-    async def parse_talhunt_az(self, session):
-        logger.info("Started scraping Talhunt.az")
-        base_url = "https://talhunt.az/api/v1/jobs"  # Updated URL
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-            'Origin': 'https://talhunt.az',
-            'Referer': 'https://talhunt.az/'
-        }
+    # @scraper_error_handler
+    # async def parse_talhunt_az(self, session):
+    #     logger.info("Started scraping Talhunt.az")
+    #     base_url = "https://talhunt.az/api/v1/jobs"  # Updated URL
+    #     headers = {
+    #         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    #         'Accept': 'application/json',
+    #         'Origin': 'https://talhunt.az',
+    #         'Referer': 'https://talhunt.az/'
+    #     }
         
-        try:
-            jobs = []
-            page = 1
+    #     try:
+    #         jobs = []
+    #         page = 1
             
-            while True:
-                url = f"{base_url}?page={page}"
-                response = await self.fetch_url_async(url, session, headers=headers)
+    #         while True:
+    #             url = f"{base_url}?page={page}"
+    #             response = await self.fetch_url_async(url, session, headers=headers)
                 
-                if isinstance(response, str):
-                    response = json.loads(response)
+    #             if isinstance(response, str):
+    #                 response = json.loads(response)
                     
-                if not response or not response.get('data'):
-                    break
+    #             if not response or not response.get('data'):
+    #                 break
                     
-                for job in response['data']:
-                    jobs.append({
-                        'company': job.get('company_name', 'Unknown'),
-                        'vacancy': job.get('title', 'Unknown'),
-                        'apply_link': f"https://talhunt.az/job/{job.get('id')}"
-                    })
+    #             for job in response['data']:
+    #                 jobs.append({
+    #                     'company': job.get('company_name', 'Unknown'),
+    #                     'vacancy': job.get('title', 'Unknown'),
+    #                     'apply_link': f"https://talhunt.az/job/{job.get('id')}"
+    #                 })
                     
-                if page >= 3 or not response.get('next_page_url'):  # Limit to 3 pages
-                    break
+    #             if page >= 3 or not response.get('next_page_url'):  # Limit to 3 pages
+    #                 break
                     
-                page += 1
+    #             page += 1
                 
-            return pd.DataFrame(jobs)
-        except Exception as e:
-            logger.error(f"Error in Talhunt scraper: {e}")
-            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+    #         return pd.DataFrame(jobs)
+    #     except Exception as e:
+    #         logger.error(f"Error in Talhunt scraper: {e}")
+    #         return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
     @scraper_error_handler
     async def parse_tabib_vacancies(self, session):
