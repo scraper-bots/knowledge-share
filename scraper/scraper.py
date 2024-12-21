@@ -1599,7 +1599,7 @@ class JobScraper:
     @scraper_error_handler
     async def parse_tabib_vacancies(self, session):
         logger.info("Started scraping TABIB vacancies")
-        url = "https://tabib.gov.az/az/vakansiya"  # Updated URL
+        url = "https://tabib.gov.az/vetendashlar-ucun/vakansiyalar"  # Updated URL
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'text/html'
