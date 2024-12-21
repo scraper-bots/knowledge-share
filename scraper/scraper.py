@@ -1179,7 +1179,7 @@ class JobScraper:
                     url, 
                     session, 
                     headers=headers,
-                    ssl=False  # Disable SSL verification if needed
+                    # ssl=False  # Disable SSL verification if needed
                 )
 
                 if response:
