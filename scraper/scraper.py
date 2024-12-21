@@ -145,7 +145,7 @@ class JobScraper:
                     url,
                     params=params,
                     headers=request_headers,
-                    ssl=verify_ssl,
+                    # ssl=verify_ssl,
                     timeout=30
                 ) as response:
                     try:
