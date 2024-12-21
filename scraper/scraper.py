@@ -1144,61 +1144,142 @@ class JobScraper:
         logger.info("Scraping completed for SmartJob.az")
         return pd.DataFrame(jobs) if jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
     
+    # @scraper_error_handler
+    # async def parse_offer_az(self, session):
+    #     logger.info("Started scraping offer.az")
+    #     base_url = "https://www.offer.az/is-elanlari/page/"
+    #     all_jobs = []
+
+    #     for page_number in range(1, 8):
+    #         url = f"{base_url}{page_number}/"
+    #         response = await self.fetch_url_async(url, session)
+
+    #         if response:
+    #             soup = BeautifulSoup(response, 'html.parser')
+    #             job_cards = soup.find_all('div', class_='job-card')
+
+    #             for job_card in job_cards:
+    #                 title_tag = job_card.find('a', class_='job-card__title')
+    #                 title = title_tag.text.strip() if title_tag else "N/A"
+    #                 link = title_tag['href'] if title_tag else "N/A"
+    #                 company_tag = job_card.find('p', class_='job-card__meta')
+    #                 company = company_tag.text.strip() if company_tag else "N/A"
+
+    #                 all_jobs.append({
+    #                     'vacancy': title,
+    #                     'company': company,
+    #                     'location': 'N/A',  # Placeholder, as location is not extracted
+    #                     'apply_link': link,
+    #                     'description': job_card.find('p', class_='job-card__excerpt').text.strip() if job_card.find('p', class_='job-card__excerpt') else "N/A"
+    #                 })
+    #         else:
+    #             logger.warning(f"Failed to retrieve page {page_number}. Retrying...")
+    #             # Retry mechanism
+    #             retry_response = await self.fetch_url_async(url, session)
+    #             if retry_response:
+    #                 soup = BeautifulSoup(retry_response, 'html.parser')
+    #                 job_cards = soup.find_all('div', class_='job-card')
+
+    #                 for job_card in job_cards:
+    #                     title_tag = job_card.find('a', class_='job-card__title')
+    #                     title = title_tag.text.strip() if title_tag else "N/A"
+    #                     link = title_tag['href'] if title_tag else "N/A"
+    #                     company_tag = job_card.find('p', class_='job-card__meta')
+    #                     company = company_tag.text.strip() if company_tag else "N/A"
+
+    #                     all_jobs.append({
+    #                         'vacancy': title,
+    #                         'company': company,
+    #                         'location': 'N/A',
+    #                         'apply_link': link,
+    #                         'description': job_card.find('p', class_='job-card__excerpt').text.strip() if job_card.find('p', class_='job-card__excerpt') else "N/A"
+    #                     })
+    #             else:
+    #                 logger.error(f"Failed to retrieve page {page_number} after retrying.")
+
+    #     logger.info("Scraping completed for offer.az")
+    #     return pd.DataFrame(all_jobs) if all_jobs else pd.DataFrame(columns=['vacancy', 'company', 'location', 'apply_link', 'description'])
+
     @scraper_error_handler
-    async def parse_offer_az(self, session):
-        logger.info("Started scraping offer.az")
-        base_url = "https://www.offer.az/is-elanlari/page/"
-        all_jobs = []
+    async def parse_smartjob_az(self, session):
+        logger.info("Started scraping SmartJob.az")
+        jobs = []
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-GB,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://smartjob.az/',
+            'Connection': 'keep-alive',
+            'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"macOS"',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0',
+            'DNT': '1'
+        }
 
-        for page_number in range(1, 8):
-            url = f"{base_url}{page_number}/"
-            response = await self.fetch_url_async(url, session)
+        for page in range(1, 5):
+            url = f"https://smartjob.az/vacancies?page={page}"
+            try:
+                # Add delay between requests
+                await asyncio.sleep(random.uniform(2, 4))
+                
+                response = await self.fetch_url_async(
+                    url, 
+                    session, 
+                    headers=headers,
+                    ssl=False  # Disable SSL verification if needed
+                )
 
-            if response:
-                soup = BeautifulSoup(response, 'html.parser')
-                job_cards = soup.find_all('div', class_='job-card')
+                if response:
+                    soup = BeautifulSoup(response, "html.parser")
+                    job_listings = soup.find_all('div', class_='item-click')
 
-                for job_card in job_cards:
-                    title_tag = job_card.find('a', class_='job-card__title')
-                    title = title_tag.text.strip() if title_tag else "N/A"
-                    link = title_tag['href'] if title_tag else "N/A"
-                    company_tag = job_card.find('p', class_='job-card__meta')
-                    company = company_tag.text.strip() if company_tag else "N/A"
+                    if not job_listings:
+                        logger.info(f"No job listings found on page {page}.")
+                        continue
 
-                    all_jobs.append({
-                        'vacancy': title,
-                        'company': company,
-                        'location': 'N/A',  # Placeholder, as location is not extracted
-                        'apply_link': link,
-                        'description': job_card.find('p', class_='job-card__excerpt').text.strip() if job_card.find('p', class_='job-card__excerpt') else "N/A"
-                    })
-            else:
-                logger.warning(f"Failed to retrieve page {page_number}. Retrying...")
-                # Retry mechanism
-                retry_response = await self.fetch_url_async(url, session)
-                if retry_response:
-                    soup = BeautifulSoup(retry_response, 'html.parser')
-                    job_cards = soup.find_all('div', class_='job-card')
-
-                    for job_card in job_cards:
-                        title_tag = job_card.find('a', class_='job-card__title')
-                        title = title_tag.text.strip() if title_tag else "N/A"
-                        link = title_tag['href'] if title_tag else "N/A"
-                        company_tag = job_card.find('p', class_='job-card__meta')
-                        company = company_tag.text.strip() if company_tag else "N/A"
-
-                        all_jobs.append({
-                            'vacancy': title,
-                            'company': company,
-                            'location': 'N/A',
-                            'apply_link': link,
-                            'description': job_card.find('p', class_='job-card__excerpt').text.strip() if job_card.find('p', class_='job-card__excerpt') else "N/A"
-                        })
+                    for listing in job_listings:
+                        try:
+                            title_elem = listing.find('div', class_='brows-job-position')
+                            if title_elem and title_elem.h3 and title_elem.h3.a:
+                                title = title_elem.h3.a.text.strip()
+                                apply_link = title_elem.h3.a['href']
+                                company_elem = listing.find('span', class_='company-title')
+                                company = company_elem.a.text.strip() if company_elem and company_elem.a else "Unknown"
+                                
+                                jobs.append({
+                                    'company': company,
+                                    'vacancy': title,
+                                    'apply_link': apply_link
+                                })
+                        except AttributeError as e:
+                            logger.warning(f"Error parsing job listing: {e}")
+                            continue
                 else:
-                    logger.error(f"Failed to retrieve page {page_number} after retrying.")
+                    logger.warning(f"Failed to retrieve page {page}.")
+                    # Add exponential backoff
+                    await asyncio.sleep(2 ** page)
+                    
+            except aiohttp.ClientConnectorError as e:
+                logger.error(f"Connection error on page {page}: {e}")
+                await asyncio.sleep(5)  # Longer delay on connection error
+                continue  # Try next page instead of breaking
+                
+            except Exception as e:
+                logger.error(f"An error occurred on page {page}: {e}")
+                await asyncio.sleep(3)
+                continue
 
-        logger.info("Scraping completed for offer.az")
-        return pd.DataFrame(all_jobs) if all_jobs else pd.DataFrame(columns=['vacancy', 'company', 'location', 'apply_link', 'description'])
+        logger.info("Scraping completed for SmartJob.az")
+        return pd.DataFrame(jobs) if jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+
 
     @scraper_error_handler
     async def parse_isveren_az(self, session):
