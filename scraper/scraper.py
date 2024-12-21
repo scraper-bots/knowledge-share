@@ -17,7 +17,10 @@ import chardet
 import functools
 from typing import Optional, Union, Dict, Any, Callable
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.ERROR,  # Changed from logging.INFO to logging.ERROR
+    format='%(levelname)s:%(name)s:%(message)s'  # Added format for better error tracking
+)
 logger = logging.getLogger(__name__)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
