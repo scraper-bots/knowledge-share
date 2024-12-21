@@ -791,12 +791,11 @@ class JobScraper:
 
     #     logger.info("Completed scraping Azerconnect")
     #     return pd.DataFrame(jobs_data)
-    
+
     @scraper_error_handler
     async def parse_azerconnect(self, session):
         """
-        Enhanced Azerconnect scraper with comprehensive anti-bot protection bypass
-        and robust error handling.
+        Enhanced Azerconnect scraper with increased timeouts and better connection handling
         """
         logger.info("Started scraping Azerconnect")
         
@@ -808,165 +807,145 @@ class JobScraper:
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15',
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         ]
         
-        # Advanced headers to mimic legitimate browser traffic
         headers = {
             'User-Agent': random.choice(user_agents),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'en-US,en;q=0.9,az;q=0.8,tr;q=0.7,ru;q=0.6',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9,az;q=0.8',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-            'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': '"Windows"',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0',
-            'Priority': 'u=0, i',
-            'DNT': '1'
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
         }
 
-        try:
-            # Configure custom timeout and connector settings
-            timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=10)
-            connector = aiohttp.TCPConnector(
-                ssl=False,
-                limit=1,
-                ttl_dns_cache=300,
-                force_close=True
-            )
+        max_retries = 3
+        base_delay = 5
 
-            # Create a new session with custom settings
-            async with aiohttp.ClientSession(
-                timeout=timeout,
-                connector=connector,
-                headers=headers,
-                trust_env=True
-            ) as client:
-                # First establish session with homepage
-                try:
-                    async with client.get(base_url) as init_response:
-                        await asyncio.sleep(random.uniform(1, 2))
-                        if init_response.status != 200:
-                            logger.error(f"Failed to access homepage: {init_response.status}")
-                            return pd.DataFrame()
-                        
-                        # Update headers with cookies and referrer
-                        headers.update({
-                            'Referer': base_url,
-                            'Origin': base_url,
-                            'Host': 'www.azerconnect.az'
-                        })
+        for attempt in range(max_retries):
+            try:
+                # Increased timeouts
+                timeout = aiohttp.ClientTimeout(
+                    total=60,          # Increased total timeout
+                    connect=20,        # Increased connection timeout
+                    sock_connect=20,   # Socket connection timeout
+                    sock_read=30       # Socket read timeout
+                )
+                
+                connector = aiohttp.TCPConnector(
+                    ssl=False,
+                    limit=1,
+                    force_close=True,
+                    enable_cleanup_closed=True
+                )
 
-                        # Request vacancies page
-                        async with client.get(url, headers=headers) as response:
-                            if response.status != 200:
-                                logger.error(f"Failed to fetch vacancies: {response.status}")
-                                return pd.DataFrame()
+                async with aiohttp.ClientSession(
+                    timeout=timeout,
+                    connector=connector,
+                    headers=headers
+                ) as client:
+                    # First try accessing the homepage
+                    try:
+                        async with client.get(base_url) as init_response:
+                            if init_response.status != 200:
+                                logger.error(f"Failed to access homepage (attempt {attempt + 1}): {init_response.status}")
+                                delay = base_delay * (2 ** attempt)
+                                await asyncio.sleep(delay)
+                                continue
 
-                            content = await response.text()
-                            
-                            if not content or len(content) < 1000:
-                                logger.error("Received invalid or empty content")
-                                return pd.DataFrame()
+                            # Add delay between requests
+                            await asyncio.sleep(random.uniform(2, 4))
 
-                            soup = BeautifulSoup(content, 'html.parser')
-                            job_listings = soup.find_all('div', class_='CollapsibleItem_item__CB3bC')
+                            # Update headers for main request
+                            headers.update({
+                                'Referer': base_url,
+                                'Origin': base_url
+                            })
 
-                            if not job_listings:
-                                logger.error("No job listings found - possible structure change")
-                                return pd.DataFrame()
-
-                            jobs_data = []
-                            for job in job_listings:
-                                try:
-                                    # Extract job details
-                                    title_block = job.find('div', class_='CollapsibleItem_toggle__XNu5y')
-                                    content_block = job.find('div', class_='CollapsibleItem_contentInner__vVcvk')
-                                    
-                                    if not title_block or not content_block:
-                                        continue
-
-                                    # Get title
-                                    title_span = title_block.find('span')
-                                    if not title_span:
-                                        continue
-                                    title = title_span.text.strip()
-
-                                    # Get apply link
-                                    apply_btn = job.find('a', class_='Button_button-blue__0wZ4l')
-                                    if not apply_btn or 'href' not in apply_btn.attrs:
-                                        continue
-                                    apply_link = apply_btn['href']
-
-                                    # Extract details
-                                    details = content_block.find_all('p')
-                                    job_info = {
-                                        'function': '',
-                                        'schedule': '',
-                                        'deadline': None,
-                                        'requirements': '',
-                                        'responsibilities': ''
-                                    }
-
-                                    # Process text details
-                                    for detail in details:
-                                        text = detail.get_text(strip=True)
-                                        if "Funksiya:" in text or "İdarə:" in text:
-                                            job_info['function'] = text.replace("Funksiya:", "").replace("İdarə:", "").strip()
-                                        elif "İş qrafiki:" in text:
-                                            job_info['schedule'] = text.replace("İş qrafiki:", "").strip()
-                                        elif "Son müraciət tarixi:" in text:
-                                            deadline_text = text.replace("Son müraciət tarixi:", "").strip()
-                                            try:
-                                                if '.' in deadline_text:
-                                                    job_info['deadline'] = datetime.strptime(deadline_text, "%d.%m.%Y").date()
-                                                else:
-                                                    job_info['deadline'] = datetime.strptime(deadline_text, "%d %B %Y").date()
-                                            except ValueError:
-                                                pass
-                                        elif "Vəzifənin tələbləri:" in text:
-                                            job_info['requirements'] = text.replace("Vəzifənin tələbləri:", "").strip()
-                                        elif "Sizin vəzifə öhdəlikləriniz:" in text:
-                                            job_info['responsibilities'] = text.replace("Sizin vəzifə öhdəlikləriniz:", "").strip()
-
-                                    # Process requirement and responsibility lists
-                                    for ul in content_block.find_all('ul'):
-                                        if ul.previous_sibling:
-                                            prev_text = ul.previous_sibling.get_text(strip=True).lower()
-                                            list_items = [li.get_text(strip=True) for li in ul.find_all('li')]
-                                            if "tələbləri" in prev_text:
-                                                job_info['requirements'] += '\n• ' + '\n• '.join(list_items)
-                                            elif "öhdəlikləriniz" in prev_text:
-                                                job_info['responsibilities'] += '\n• ' + '\n• '.join(list_items)
-
-                                    jobs_data.append({
-                                        'company': 'Azerconnect',
-                                        'vacancy': title,
-                                        'location': 'Baku, Azerbaijan',
-                                        'apply_link': apply_link,
-                                        **job_info
-                                    })
-
-                                except Exception as e:
-                                    logger.error(f"Error parsing job listing: {str(e)}")
+                            # Fetch vacancies page
+                            async with client.get(url, headers=headers) as response:
+                                if response.status != 200:
+                                    logger.error(f"Failed to fetch vacancies (attempt {attempt + 1}): {response.status}")
+                                    delay = base_delay * (2 ** attempt)
+                                    await asyncio.sleep(delay)
                                     continue
 
-                            logger.info(f"Successfully scraped {len(jobs_data)} jobs from Azerconnect")
-                            return pd.DataFrame(jobs_data)
+                                content = await response.text()
+                                
+                                if not content or len(content) < 1000:
+                                    logger.error(f"Invalid content received (attempt {attempt + 1})")
+                                    delay = base_delay * (2 ** attempt)
+                                    await asyncio.sleep(delay)
+                                    continue
 
-                except aiohttp.ClientError as e:
-                    logger.error(f"Network error: {str(e)}")
-                    return pd.DataFrame()
+                                soup = BeautifulSoup(content, 'html.parser')
+                                job_listings = soup.find_all('div', class_='CollapsibleItem_item__CB3bC')
 
-        except Exception as e:
-            logger.error(f"Error in Azerconnect scraper: {str(e)}")
-            return pd.DataFrame()
+                                if not job_listings:
+                                    logger.error(f"No job listings found (attempt {attempt + 1})")
+                                    delay = base_delay * (2 ** attempt)
+                                    await asyncio.sleep(delay)
+                                    continue
+
+                                jobs_data = []
+                                for job in job_listings:
+                                    try:
+                                        title_block = job.find('div', class_='CollapsibleItem_toggle__XNu5y')
+                                        title = title_block.find('span').text.strip() if title_block and title_block.find('span') else None
+                                        
+                                        if not title:
+                                            continue
+
+                                        apply_btn = job.find('a', class_='Button_button-blue__0wZ4l')
+                                        apply_link = apply_btn['href'] if apply_btn and 'href' in apply_btn.attrs else None
+                                        
+                                        if not apply_link:
+                                            continue
+
+                                        content_block = job.find('div', class_='CollapsibleItem_contentInner__vVcvk')
+                                        if not content_block:
+                                            continue
+
+                                        jobs_data.append({
+                                            'company': 'Azerconnect',
+                                            'vacancy': title,
+                                            'apply_link': apply_link
+                                        })
+
+                                    except Exception as e:
+                                        logger.error(f"Error parsing individual job: {str(e)}")
+                                        continue
+
+                                if jobs_data:
+                                    logger.info(f"Successfully scraped {len(jobs_data)} jobs from Azerconnect")
+                                    return pd.DataFrame(jobs_data)
+
+                    except aiohttp.ClientError as e:
+                        logger.error(f"Client error (attempt {attempt + 1}): {str(e)}")
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)
+                            await asyncio.sleep(delay)
+                            continue
+                        return pd.DataFrame()
+
+                    except asyncio.TimeoutError:
+                        logger.error(f"Timeout error (attempt {attempt + 1})")
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)
+                            await asyncio.sleep(delay)
+                            continue
+                        return pd.DataFrame()
+
+            except Exception as e:
+                logger.error(f"Unexpected error (attempt {attempt + 1}): {str(e)}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
+                    continue
+                return pd.DataFrame()
+
+        logger.error("All attempts failed for Azerconnect scraper")
+        return pd.DataFrame()
      
     @scraper_error_handler
     async def parse_djinni_co(self, session):
