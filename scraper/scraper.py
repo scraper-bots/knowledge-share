@@ -569,7 +569,7 @@ class JobScraper:
         """
         logger.info("Started scraping Impactpool")
         
-        url = 'https://www.impactpool.org/search?q=&wl%5B%5D=16'
+        url = 'https://www.impactpool.org/countries/Azerbaijan'
         base_url = 'https://www.impactpool.org'
         
         headers = {
