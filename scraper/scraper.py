@@ -726,72 +726,219 @@ class JobScraper:
         logger.info("Completed scraping Azercell")
         return pd.DataFrame(jobs_data)
     
+    # @scraper_error_handler
+    # async def parse_azerconnect(self, session):
+    #     logger.info("Started scraping Azerconnect")
+    #     url = "https://www.azerconnect.az/vacancies"
+    #     response_text = await self.fetch_url_async(url, session, verify_ssl=False)
+    #     if not response_text:
+    #         logger.warning("Failed to retrieve Azerconnect page.")
+    #         return pd.DataFrame()
+
+    #     soup = BeautifulSoup(response_text, 'html.parser')
+    #     job_listings = soup.find_all('div', class_='CollapsibleItem_item__CB3bC')
+
+    #     jobs_data = []
+    #     for job in job_listings:
+    #         content_block = job.find('div', class_='CollapsibleItem_contentInner__vVcvk')
+    #         title = job.find('div', class_='CollapsibleItem_toggle__XNu5y').find('span').text.strip() if job.find('div', class_='CollapsibleItem_toggle__XNu5y').find('span') else "No Title"
+    #         apply_link_elem = job.find('a', class_='Button_button-blue__0wZ4l')
+    #         apply_link = apply_link_elem['href'] if apply_link_elem else "No Apply Link"
+
+    #         details = content_block.find_all('p')
+    #         function = schedule = deadline = responsibilities = requirements = ""
+
+    #         for detail in details:
+    #             text = detail.get_text(strip=True)
+    #             if text.startswith("Funksiya:") or text.startswith("İdarə:"):
+    #                 function = text.replace("Funksiya:", "").replace("İdarə:", "").strip()
+    #             elif text.startswith("İş qrafiki:"):
+    #                 schedule = text.replace("İş qrafiki:", "").strip()
+    #             elif text.startswith("Son müraciət tarixi:"):
+    #                 deadline = text.replace("Son müraciət tarixi:", "").strip()
+    #             elif text.startswith("Vəzifənin tələbləri:"):
+    #                 requirements = text.replace("Vəzifənin tələbləri:", "").strip()
+    #             elif text.startswith("Sizin vəzifə öhdəlikləriniz:") or text.startswith("Əlavə Dəyərli Xidmətlər əməliyyatları üzrə ekspert olaraq sizin vəzifə öhdəlikləriniz:"):
+    #                 responsibilities = text.replace("Sizin vəzifə öhdəlikləriniz:", "").strip()
+
+    #         uls = content_block.find_all('ul')
+    #         if uls:
+    #             for ul in uls:
+    #                 if "Vəzifənin tələbləri" in ul.previous_sibling.get_text(strip=True):
+    #                     requirements += '\n' + '\n'.join([li.get_text(strip=True) for li in ul.find_all('li')])
+    #                 elif "Sizin əsas vəzifə öhdəlikləriniz" in ul.previous_sibling.get_text(strip=True):
+    #                     responsibilities += '\n' + '\n'.join([li.get_text(strip=True) for li in ul.find_all('li')])
+
+    #         if deadline:
+    #             try:
+    #                 deadline_date = datetime.strptime(deadline, "%d.%m.%Y").date() if '.' in deadline else datetime.strptime(deadline, "%d %B %Y").date()
+    #             except ValueError:
+    #                 deadline_date = None
+    #         else:
+    #             deadline_date = None
+
+    #         jobs_data.append({
+    #             'company': 'azerconnect',
+    #             'vacancy': title,
+    #             'location': 'Baku, Azerbaijan',
+    #             'function': function,
+    #             'schedule': schedule,
+    #             'deadline': deadline_date,
+    #             'responsibilities': responsibilities,
+    #             'requirements': requirements,
+    #             'apply_link': apply_link
+    #         })
+
+    #     logger.info("Completed scraping Azerconnect")
+    #     return pd.DataFrame(jobs_data)
+    
     @scraper_error_handler
     async def parse_azerconnect(self, session):
         logger.info("Started scraping Azerconnect")
-        url = "https://www.azerconnect.az/vacancies"
-        response_text = await self.fetch_url_async(url, session, verify_ssl=False)
-        if not response_text:
-            logger.warning("Failed to retrieve Azerconnect page.")
+        base_url = "https://www.azerconnect.az"
+        url = f"{base_url}/vacancies"
+        
+        # Advanced browser-like headers with anti-bot measures
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9,az;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Referer': 'https://www.azerconnect.az/',
+            'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0',
+            'dnt': '1',
+            'Host': 'www.azerconnect.az',
+            'viewport-width': '1920',
+            'sec-ch-viewport-width': '1920',
+            'device-memory': '8',
+            'rtt': '50',
+            'downlink': '10',
+            'ect': '4g',
+        }
+
+        try:
+            # First establish session with homepage
+            async with session.get(base_url, headers=headers, ssl=False) as init_response:
+                if init_response.status != 200:
+                    logger.error(f"Failed to establish initial session. Status: {init_response.status}")
+                    return pd.DataFrame()
+
+                # Add small delay to mimic human behavior
+                await asyncio.sleep(random.uniform(1, 2))
+
+                # Now fetch the vacancies page
+                async with session.get(
+                    url,
+                    headers={
+                        **headers,
+                        'Referer': base_url,
+                    },
+                    ssl=False
+                ) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to fetch vacancies. Status: {response.status}")
+                        return pd.DataFrame()
+
+                    content = await response.text()
+                    
+                    # Verify we got actual content
+                    if not content or len(content) < 1000:
+                        logger.error("Received empty or invalid response")
+                        return pd.DataFrame()
+
+                    soup = BeautifulSoup(content, 'html.parser')
+                    job_listings = soup.find_all('div', class_='CollapsibleItem_item__CB3bC')
+
+                    if not job_listings:
+                        logger.error("No job listings found - possible structure change or blocking")
+                        return pd.DataFrame()
+
+                    jobs_data = []
+                    for job in job_listings:
+                        try:
+                            content_block = job.find('div', class_='CollapsibleItem_contentInner__vVcvk')
+                            title_block = job.find('div', class_='CollapsibleItem_toggle__XNu5y')
+                            
+                            if not content_block or not title_block:
+                                continue
+
+                            title = title_block.find('span')
+                            title = title.text.strip() if title else "No Title"
+                            
+                            apply_link_elem = job.find('a', class_='Button_button-blue__0wZ4l')
+                            apply_link = apply_link_elem['href'] if apply_link_elem else None
+                            
+                            if not apply_link:
+                                continue
+
+                            details = content_block.find_all('p') if content_block else []
+                            function = schedule = deadline = responsibilities = requirements = ""
+
+                            for detail in details:
+                                text = detail.get_text(strip=True)
+                                if "Funksiya:" in text or "İdarə:" in text:
+                                    function = text.replace("Funksiya:", "").replace("İdarə:", "").strip()
+                                elif "İş qrafiki:" in text:
+                                    schedule = text.replace("İş qrafiki:", "").strip()
+                                elif "Son müraciət tarixi:" in text:
+                                    deadline = text.replace("Son müraciət tarixi:", "").strip()
+                                elif "Vəzifənin tələbləri:" in text:
+                                    requirements = text.replace("Vəzifənin tələbləri:", "").strip()
+                                elif "Sizin vəzifə öhdəlikləriniz:" in text:
+                                    responsibilities = text.replace("Sizin vəzifə öhdəlikləriniz:", "").strip()
+
+                            # Process lists
+                            uls = content_block.find_all('ul') if content_block else []
+                            for ul in uls:
+                                prev_text = ul.previous_sibling.get_text(strip=True) if ul.previous_sibling else ""
+                                if "tələbləri" in prev_text.lower():
+                                    requirements += '\n' + '\n'.join(li.get_text(strip=True) for li in ul.find_all('li'))
+                                elif "öhdəlikləriniz" in prev_text.lower():
+                                    responsibilities += '\n' + '\n'.join(li.get_text(strip=True) for li in ul.find_all('li'))
+
+                            # Parse deadline
+                            deadline_date = None
+                            if deadline:
+                                try:
+                                    if '.' in deadline:
+                                        deadline_date = datetime.strptime(deadline, "%d.%m.%Y").date()
+                                    else:
+                                        deadline_date = datetime.strptime(deadline, "%d %B %Y").date()
+                                except ValueError:
+                                    pass
+
+                            jobs_data.append({
+                                'company': 'azerconnect',
+                                'vacancy': title,
+                                'location': 'Baku, Azerbaijan',
+                                'function': function,
+                                'schedule': schedule,
+                                'deadline': deadline_date,
+                                'responsibilities': responsibilities,
+                                'requirements': requirements,
+                                'apply_link': apply_link
+                            })
+
+                        except Exception as e:
+                            logger.error(f"Error processing job listing: {str(e)}")
+                            continue
+
+                    logger.info(f"Successfully scraped {len(jobs_data)} jobs from Azerconnect")
+                    return pd.DataFrame(jobs_data)
+
+        except Exception as e:
+            logger.error(f"Error in Azerconnect scraper: {str(e)}")
             return pd.DataFrame()
-
-        soup = BeautifulSoup(response_text, 'html.parser')
-        job_listings = soup.find_all('div', class_='CollapsibleItem_item__CB3bC')
-
-        jobs_data = []
-        for job in job_listings:
-            content_block = job.find('div', class_='CollapsibleItem_contentInner__vVcvk')
-            title = job.find('div', class_='CollapsibleItem_toggle__XNu5y').find('span').text.strip() if job.find('div', class_='CollapsibleItem_toggle__XNu5y').find('span') else "No Title"
-            apply_link_elem = job.find('a', class_='Button_button-blue__0wZ4l')
-            apply_link = apply_link_elem['href'] if apply_link_elem else "No Apply Link"
-
-            details = content_block.find_all('p')
-            function = schedule = deadline = responsibilities = requirements = ""
-
-            for detail in details:
-                text = detail.get_text(strip=True)
-                if text.startswith("Funksiya:") or text.startswith("İdarə:"):
-                    function = text.replace("Funksiya:", "").replace("İdarə:", "").strip()
-                elif text.startswith("İş qrafiki:"):
-                    schedule = text.replace("İş qrafiki:", "").strip()
-                elif text.startswith("Son müraciət tarixi:"):
-                    deadline = text.replace("Son müraciət tarixi:", "").strip()
-                elif text.startswith("Vəzifənin tələbləri:"):
-                    requirements = text.replace("Vəzifənin tələbləri:", "").strip()
-                elif text.startswith("Sizin vəzifə öhdəlikləriniz:") or text.startswith("Əlavə Dəyərli Xidmətlər əməliyyatları üzrə ekspert olaraq sizin vəzifə öhdəlikləriniz:"):
-                    responsibilities = text.replace("Sizin vəzifə öhdəlikləriniz:", "").strip()
-
-            uls = content_block.find_all('ul')
-            if uls:
-                for ul in uls:
-                    if "Vəzifənin tələbləri" in ul.previous_sibling.get_text(strip=True):
-                        requirements += '\n' + '\n'.join([li.get_text(strip=True) for li in ul.find_all('li')])
-                    elif "Sizin əsas vəzifə öhdəlikləriniz" in ul.previous_sibling.get_text(strip=True):
-                        responsibilities += '\n' + '\n'.join([li.get_text(strip=True) for li in ul.find_all('li')])
-
-            if deadline:
-                try:
-                    deadline_date = datetime.strptime(deadline, "%d.%m.%Y").date() if '.' in deadline else datetime.strptime(deadline, "%d %B %Y").date()
-                except ValueError:
-                    deadline_date = None
-            else:
-                deadline_date = None
-
-            jobs_data.append({
-                'company': 'azerconnect',
-                'vacancy': title,
-                'location': 'Baku, Azerbaijan',
-                'function': function,
-                'schedule': schedule,
-                'deadline': deadline_date,
-                'responsibilities': responsibilities,
-                'requirements': requirements,
-                'apply_link': apply_link
-            })
-
-        logger.info("Completed scraping Azerconnect")
-        return pd.DataFrame(jobs_data)
-    
+     
     @scraper_error_handler
     async def parse_djinni_co(self, session):
         pages = 17
