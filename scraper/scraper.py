@@ -2846,49 +2846,109 @@ class JobScraper:
         df = pd.DataFrame(job_listings, columns=['vacancy', 'company', 'apply_link'])
         return df
 
+    # @scraper_error_handler
+    # async def scrape_canscreen(self, session):
+    #     """
+    #     Scrape vacancies from the CanScreen API and return the data as a DataFrame
+    #     with columns 'company', 'vacancy', and 'apply_link'.
+        
+    #     Args:
+    #         session (aiohttp.ClientSession): The aiohttp session object for making HTTP requests.
+        
+    #     Returns:
+    #         pd.DataFrame: A DataFrame containing the scraped vacancy data with specific columns.
+    #     """
+    #     api_url = "https://canscreen.io/_next/data/W5jP3jS8JZCd25SRiR4oo/en/vacancies.json"
+        
+    #     try:
+    #         async with session.get(api_url) as response:
+    #             if response.status == 200:
+    #                 data = await response.json()
+    #                 vacancies = data['pageProps']['vacancies']
+
+    #                 jobs = []
+
+    #                 for vacancy in vacancies:
+    #                     title = vacancy['title']
+    #                     company = vacancy['company']
+    #                     apply_link = f"https://canscreen.io/vacancies/{vacancy['id']}/"
+
+    #                     jobs.append({
+    #                         'company': company,
+    #                         'vacancy': title,
+    #                         'apply_link': apply_link
+    #                     })
+
+    #                 df = pd.DataFrame(jobs)
+    #                 return df
+    #             else:
+    #                 logger.error(f"Failed to fetch data from the API. Status code: {response.status}")
+    #                 return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])  # Return empty DataFrame on failure
+
+    #     except Exception as e:
+    #         logger.error(f"An error occurred: {e}")
+    #         return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])  # Return empty DataFrame on exception
+
     @scraper_error_handler
     async def scrape_canscreen(self, session):
         """
-        Scrape vacancies from the CanScreen API and return the data as a DataFrame
-        with columns 'company', 'vacancy', and 'apply_link'.
-        
-        Args:
-            session (aiohttp.ClientSession): The aiohttp session object for making HTTP requests.
-        
-        Returns:
-            pd.DataFrame: A DataFrame containing the scraped vacancy data with specific columns.
+        Scrape vacancies from the CanScreen API with dynamic build ID handling.
         """
-        api_url = "https://canscreen.io/_next/data/W5jP3jS8JZCd25SRiR4oo/en/vacancies.json"
+        # First, fetch the main page to get the current build ID
+        base_url = "https://canscreen.io"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br'
+        }
         
         try:
-            async with session.get(api_url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    vacancies = data['pageProps']['vacancies']
-
-                    jobs = []
-
-                    for vacancy in vacancies:
-                        title = vacancy['title']
-                        company = vacancy['company']
-                        apply_link = f"https://canscreen.io/vacancies/{vacancy['id']}/"
-
-                        jobs.append({
-                            'company': company,
-                            'vacancy': title,
-                            'apply_link': apply_link
-                        })
-
-                    df = pd.DataFrame(jobs)
-                    return df
-                else:
-                    logger.error(f"Failed to fetch data from the API. Status code: {response.status}")
-                    return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])  # Return empty DataFrame on failure
-
+            # Get the main page first
+            async with session.get(f"{base_url}/en/vacancies", headers=headers) as response:
+                if response.status != 200:
+                    logger.error(f"Failed to fetch main page. Status code: {response.status}")
+                    return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+                
+                html_content = await response.text()
+                
+                # Extract the build ID from the page
+                # Look for the script containing __NEXT_DATA__
+                import re
+                build_id_match = re.search(r'"buildId":"([^"]+)"', html_content)
+                
+                if not build_id_match:
+                    logger.error("Could not find build ID in the page")
+                    return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+                    
+                build_id = build_id_match.group(1)
+                
+                # Now construct the API URL with the current build ID
+                api_url = f"{base_url}/_next/data/{build_id}/en/vacancies.json"
+                
+                # Fetch the actual vacancy data
+                async with session.get(api_url, headers=headers) as api_response:
+                    if api_response.status == 200:
+                        data = await api_response.json()
+                        vacancies = data.get('pageProps', {}).get('vacancies', [])
+                        
+                        jobs = []
+                        for vacancy in vacancies:
+                            jobs.append({
+                                'company': vacancy.get('company', 'Unknown'),
+                                'vacancy': vacancy.get('title', 'Unknown'),
+                                'apply_link': f"{base_url}/vacancies/{vacancy.get('id')}/"
+                            })
+                        
+                        return pd.DataFrame(jobs)
+                    else:
+                        logger.error(f"Failed to fetch vacancy data. Status: {api_response.status}")
+                        return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+                        
         except Exception as e:
-            logger.error(f"An error occurred: {e}")
-            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])  # Return empty DataFrame on exception
-
+            logger.error(f"Error in CanScreen scraper: {str(e)}")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
     
 def main():
