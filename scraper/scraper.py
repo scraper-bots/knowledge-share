@@ -1112,7 +1112,7 @@ class JobScraper:
             'Pragma': 'no-cache'
         }
         
-        for page in range(1, 11):
+        for page in range(1, 5):
             url = f"https://smartjob.az/vacancies?page={page}"
             try:
                 response = await self.fetch_url_async(url, session, headers=headers)
