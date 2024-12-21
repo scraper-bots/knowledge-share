@@ -2910,7 +2910,7 @@ class JobScraper:
         Returns:
             pd.DataFrame: A DataFrame containing the scraped vacancy data with specific columns.
         """
-        api_url = "https://canscreen.io/_next/data/FyeSs_9TwxxZfkqJJM12V/en/vacancies.json"
+        api_url = "https://canscreen.io/_next/data/W5jP3jS8JZCd25SRiR4oo/en/vacancies.json"
         
         try:
             async with session.get(api_url) as response:
