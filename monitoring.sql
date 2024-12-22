@@ -15,11 +15,7 @@
 --		public.jobs_jobpost jj)
 --order by
 --	created_at desc;
-
-
-
-
-
+--
 --WITH latest_scrape AS (
 --  SELECT MAX(created_at) as latest_date
 --  FROM public.jobs_jobpost
@@ -114,9 +110,6 @@
 --  job_count DESC,
 --  website_name;
 
-
-
-
 WITH latest_scrape AS (
   SELECT MAX(created_at) as latest_date
   FROM public.jobs_jobpost
@@ -127,7 +120,7 @@ website_patterns AS (
     ('Smartjob', '%smartjob%'),
     ('Glorri', '%glorri%'),
     ('Azercell', '%azercell%'),
-    ('Azerconnect', '%azerconnect%'),
+    ('Azerconnect', '%azerconnect.az%'),
     ('Djinni', '%djinni%'),
     ('ABB', '%abb-bank%'),
     ('HelloJob', '%hellojob%'),
@@ -148,7 +141,7 @@ website_patterns AS (
     ('ProJobs', '%projobs%'),
     ('AzerGold', '%azergold%'),
     ('Konsis', '%konsis%'),
-    ('Baku Electronics', '%bakuelectronics%'),
+    ('Baku Electronics', '%bakuelectronics.az%'),
     ('ASCO', '%asco%'),
     ('CBAR', '%cbar%'),
     ('ADA', '%ada.edu%'),
