@@ -318,7 +318,6 @@ class JobScraper:
                     self.parse_vakansiya_biz(session),
                     self.parse_its_gov(session),
                     self.parse_is_elanlari_iilkin(session),
-                    # self.parse_talhunt_az(session),
                     self.parse_tabib_vacancies(session),
                     self.parse_projobs_vacancies(session),
                     self.parse_azergold(session),
@@ -342,7 +341,6 @@ class JobScraper:
                     self.scrape_themuse_api(session),
                     self.scrape_dejobs(session),
                     self.scrape_hcb(session),
-                    # self.scrape_impactpool(session),
                     self.scrape_bfb(session),
                     self.scrape_airswift(session),
                     self.scrape_orion(session),
@@ -565,129 +563,6 @@ class JobScraper:
             logger.error(f"Unexpected error in Glorri scraper: {str(e)}")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
-    # @scraper_error_handler
-    # async def scrape_impactpool(self, session):
-    #     """
-    #     Impactpool scraper with improved anti-bot detection bypass
-    #     """
-    #     logger.info("Started scraping Impactpool")
-        
-    #     url = 'https://www.impactpool.org/countries/Azerbaijan'
-    #     base_url = 'https://www.impactpool.org'
-        
-    #     # More sophisticated browser-like headers
-    #     headers = {
-    #         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    #         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    #         'Accept-Language': 'en-US,en;q=0.9',
-    #         'Accept-Encoding': 'gzip, deflate, br',
-    #         'Referer': 'https://www.impactpool.org/',
-    #         'Connection': 'keep-alive',
-    #         'Upgrade-Insecure-Requests': '1',
-    #         'Sec-Fetch-Dest': 'document',
-    #         'Sec-Fetch-Mode': 'navigate',
-    #         'Sec-Fetch-Site': 'same-origin',
-    #         'Sec-Fetch-User': '?1',
-    #         'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-    #         'sec-ch-ua-mobile': '?0',
-    #         'sec-ch-ua-platform': '"Windows"',
-    #         'Cache-Control': 'max-age=0',
-    #         'dnt': '1',
-    #         'Host': 'www.impactpool.org',
-    #         'Origin': 'https://www.impactpool.org'
-    #     }
-        
-    #     try:
-    #         max_retries = 3
-    #         retry_delay = 5  # Increased delay between retries
-    #         jobs = []
-            
-    #         # List of rotating user agents
-    #         user_agents = [
-    #             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/121.0.0.0 Safari/537.36',
-    #             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
-    #             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0'
-    #         ]
-            
-    #         for retry in range(max_retries):
-    #             try:
-    #                 # Rotate User-Agent
-    #                 headers['User-Agent'] = random.choice(user_agents)
-                    
-    #                 # Add random delay before request
-    #                 await asyncio.sleep(random.uniform(2, 5))
-                    
-    #                 # First fetch the homepage to establish session
-    #                 async with session.get(base_url, headers=headers, timeout=30) as init_response:
-    #                     if init_response.status == 403:
-    #                         logger.error(f"Initial request blocked (403) on attempt {retry + 1}/{max_retries}")
-    #                         await asyncio.sleep(retry_delay * (retry + 1))
-    #                         continue
-                            
-    #                     # Small delay between requests
-    #                     await asyncio.sleep(random.uniform(1, 3))
-                        
-    #                     # Now fetch the actual jobs page
-    #                     async with session.get(url, headers=headers, timeout=30) as response:
-    #                         if response.status == 403:
-    #                             logger.error(f"Access forbidden (403) on attempt {retry + 1}/{max_retries}")
-    #                             await asyncio.sleep(retry_delay * (retry + 1))
-    #                             continue
-                            
-    #                         response.raise_for_status()
-    #                         content = await response.text()
-                            
-    #                         soup = BeautifulSoup(content, 'html.parser')
-    #                         job_listings = soup.select('#job_list .job')
-                            
-    #                         if not job_listings:
-    #                             logger.warning("No job listings found in the response")
-    #                             if retry < max_retries - 1:
-    #                                 await asyncio.sleep(retry_delay * (retry + 1))
-    #                                 continue
-                            
-    #                         for job in job_listings:
-    #                             try:
-    #                                 title_element = job.select_one('.job-title a.apply-link')
-    #                                 organization_element = job.select_one('.job-organization')
-                                    
-    #                                 if title_element:
-    #                                     title = title_element.get_text(strip=True)
-    #                                     apply_link = urljoin(base_url, title_element['href'])
-    #                                     organization = organization_element.get_text(strip=True) if organization_element else "Unknown Organization"
-                                        
-    #                                     jobs.append({
-    #                                         'company': organization,
-    #                                         'vacancy': title,
-    #                                         'apply_link': apply_link
-    #                                     })
-    #                             except Exception as e:
-    #                                 logger.error(f"Error processing job listing: {str(e)}")
-    #                                 continue
-                            
-    #                         if jobs:
-    #                             break
-                            
-    #             except aiohttp.ClientError as e:
-    #                 logger.error(f"Network error on attempt {retry + 1}: {str(e)}")
-    #                 if retry < max_retries - 1:
-    #                     await asyncio.sleep(retry_delay * (retry + 1))
-    #                 else:
-    #                     logger.error("Max retries exceeded due to network errors")
-                        
-    #             except Exception as e:
-    #                 logger.error(f"Unexpected error on attempt {retry + 1}: {str(e)}")
-    #                 if retry < max_retries - 1:
-    #                     await asyncio.sleep(retry_delay * (retry + 1))
-    #                 else:
-    #                     logger.error("Max retries exceeded due to unexpected errors")
-            
-    #         return pd.DataFrame(jobs) if jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-            
-    #     except Exception as e:
-    #         logger.error(f"Unexpected error in Impactpool scraper: {str(e)}")
-    #         return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-        
     @scraper_error_handler
     async def parse_azercell(self, session):
         logger.info("Started scraping Azercell")
@@ -1709,47 +1584,6 @@ class JobScraper:
             logger.warning("No job listings found")
             return pd.DataFrame(columns=['vacancy', 'company', 'apply_link'])
 
-    # @scraper_error_handler
-    # async def parse_talhunt_az(self, session):
-    #     logger.info("Started scraping Talhunt.az")
-    #     base_url = "https://talhunt.az/api/v1/jobs"  # Updated URL
-    #     headers = {
-    #         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    #         'Accept': 'application/json',
-    #         'Origin': 'https://talhunt.az',
-    #         'Referer': 'https://talhunt.az/'
-    #     }
-        
-    #     try:
-    #         jobs = []
-    #         page = 1
-            
-    #         while True:
-    #             url = f"{base_url}?page={page}"
-    #             response = await self.fetch_url_async(url, session, headers=headers)
-                
-    #             if isinstance(response, str):
-    #                 response = json.loads(response)
-                    
-    #             if not response or not response.get('data'):
-    #                 break
-                    
-    #             for job in response['data']:
-    #                 jobs.append({
-    #                     'company': job.get('company_name', 'Unknown'),
-    #                     'vacancy': job.get('title', 'Unknown'),
-    #                     'apply_link': f"https://talhunt.az/job/{job.get('id')}"
-    #                 })
-                    
-    #             if page >= 3 or not response.get('next_page_url'):  # Limit to 3 pages
-    #                 break
-                    
-    #             page += 1
-                
-    #         return pd.DataFrame(jobs)
-    #     except Exception as e:
-    #         logger.error(f"Error in Talhunt scraper: {e}")
-    #         return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
     @scraper_error_handler
     async def parse_tabib_vacancies(self, session):
