@@ -263,10 +263,6 @@ async def parse_new_site(self, session):
 
 This project is open source and available under the MIT License.
 
-## Contact
-
-For questions or issues, please open a GitHub issue or contact [Ismat Samadov](https://github.com/Ismat-Samadov).
-
 ## Acknowledgments
 
 This project was built to help job seekers in Azerbaijan find opportunities across multiple platforms efficiently.
