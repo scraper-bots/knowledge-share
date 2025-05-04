@@ -42,7 +42,8 @@ class JobScraper:
             'user': os.getenv('DB_USER'),
             'password': os.getenv('DB_PASSWORD'),
             'host': os.getenv('DB_HOST'),
-            'port': os.getenv('DB_PORT')
+            'port': os.getenv('DB_PORT'),
+            'sslmode': 'require'
         }
 
     async def log_scraper_error(self, scraper_method: str, error_code: str, error_message: str, url: str = None, retry_count: int = None):
@@ -244,35 +245,58 @@ class JobScraper:
                 return None
         
         return None
-    
+
     def save_to_db(self, df, batch_size=100):
         if df.empty:
             logger.warning("No data to save to the database.")
             return
 
         try:
+            # The self.db_params already includes sslmode='require' after updating load_db_credentials
             with psycopg2.connect(**self.db_params) as conn:
                 with conn.cursor() as cur:
-                    values = [
-                        (
-                            row.get('vacancy', '')[:500],
-                            row.get('company', '')[:500],
-                            row.get('apply_link', '')[:1000]
-                        )
-                        for _, row in df.iterrows()
-                    ]
+                    # Start transaction
+                    conn.autocommit = False
+                    
+                    try:
+                        # Step 1: Delete all existing data in the table with CASCADE
+                        logger.info("Deleting all existing data from jobs_jobpost table...")
+                        delete_query = sql.SQL("TRUNCATE TABLE jobs_jobpost CASCADE")
+                        cur.execute(delete_query)
+                        logger.info("Successfully deleted all existing data and related records")
+                        
+                        # Step 2: Prepare data for insertion
+                        values = [
+                            (
+                                row.get('vacancy', '')[:500],
+                                row.get('company', '')[:500],
+                                row.get('apply_link', '')[:1000]
+                            )
+                            for _, row in df.iterrows()
+                        ]
 
-                    if values:
-                        insert_query = sql.SQL("""
-                            INSERT INTO jobs_jobpost (title, company, apply_link)
-                            VALUES %s
-                        """)
-                        extras.execute_values(cur, insert_query, values, page_size=batch_size)
-                        conn.commit()
-                        logger.info(f"{len(values)} new job posts inserted into the database.")
-                    else:
-                        logger.info("No new job posts to insert.")
-
+                        if values:
+                            # Step 3: Batch insert new data
+                            insert_query = sql.SQL("""
+                                INSERT INTO jobs_jobpost (title, company, apply_link)
+                                VALUES %s
+                            """)
+                            extras.execute_values(cur, insert_query, values, page_size=batch_size)
+                            
+                            # Commit transaction
+                            conn.commit()
+                            logger.info(f"{len(values)} new job posts inserted into the database.")
+                        else:
+                            # Rollback if no data to insert
+                            conn.rollback()
+                            logger.info("No new job posts to insert. Transaction rolled back.")
+                        
+                    except Exception as e:
+                        # Rollback on error
+                        conn.rollback()
+                        logger.error(f"Error during database operation. Transaction rolled back. Error: {e}")
+                        raise
+                        
         except (Exception, psycopg2.DatabaseError) as error:
             logger.error(f"Error saving data to the database: {error}")
 
@@ -347,6 +371,8 @@ class JobScraper:
                     self.scrape_hrcbaku(session),
                     self.parse_jobsearch_az(session),
                     self.scrape_canscreen(session),
+                    self.parse_azercosmos(session),
+                    self.scrape_guavalab(session),
                 ]
 
                 # Execute all parsers concurrently with error handling
@@ -2851,48 +2877,160 @@ class JobScraper:
         df = pd.DataFrame(job_listings, columns=['vacancy', 'company', 'apply_link'])
         return df
 
-    # @scraper_error_handler
-    # async def scrape_canscreen(self, session):
-    #     """
-    #     Scrape vacancies from the CanScreen API and return the data as a DataFrame
-    #     with columns 'company', 'vacancy', and 'apply_link'.
+    @scraper_error_handler
+    async def parse_azercosmos(self, session):
+        """
+        Scrape job vacancies from Azercosmos careers page with enhanced parsing
+        """
+        logger.info("Started scraping Azercosmos")
+        url = "https://azercosmos.az/en/about-us/careers"
         
-    #     Args:
-    #         session (aiohttp.ClientSession): The aiohttp session object for making HTTP requests.
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
         
-    #     Returns:
-    #         pd.DataFrame: A DataFrame containing the scraped vacancy data with specific columns.
-    #     """
-    #     api_url = "https://canscreen.io/_next/data/W5jP3jS8JZCd25SRiR4oo/en/vacancies.json"
+        try:
+            response = await self.fetch_url_async(url, session, headers=headers)
+            
+            if not response:
+                logger.error("Failed to retrieve the Azercosmos careers page")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            
+            soup = BeautifulSoup(response, 'html.parser')
+            job_listings = []
+            
+            # First, find the section containing careers
+            careers_section = soup.find('section', class_='careers')
+            if not careers_section:
+                logger.warning("Careers section not found")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            
+            # Find the positions container
+            positions_div = careers_section.find('div', class_='positions')
+            if not positions_div:
+                logger.warning("Positions container not found")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            
+            # Find all collapsible job divs within the positions container
+            collapsibles = positions_div.find_all('div', class_='collapsible')
+            base_url = "https://azercosmos.az"
+            
+            for collapsible in collapsibles:
+                try:
+                    # Find the label containing the job title
+                    label = collapsible.find('label')
+                    if not label:
+                        continue
+                        
+                    # Find the title span within the flex container
+                    flex_container = label.find('div', class_='flex')
+                    if not flex_container:
+                        continue
+                        
+                    title_span = flex_container.find('span')
+                    title = title_span.text.strip() if title_span else None
+                    
+                    # Find the collapser div which contains the apply link
+                    collapser = collapsible.find('div', class_='collapser')
+                    if not collapser:
+                        continue
+                        
+                    # Find the apply link
+                    apply_link_elem = collapser.find('a', href=True)
+                    apply_link = urljoin(base_url, apply_link_elem['href']) if apply_link_elem else None
+                    
+                    if title and apply_link:
+                        job_listings.append({
+                            'company': 'Azercosmos',
+                            'vacancy': title,
+                            'apply_link': apply_link
+                        })
+                except Exception as e:
+                    logger.warning(f"Error parsing job listing: {str(e)}")
+                    continue
+            
+            logger.info(f"Successfully scraped {len(job_listings)} jobs from Azercosmos")
+            return pd.DataFrame(job_listings)
         
-    #     try:
-    #         async with session.get(api_url) as response:
-    #             if response.status == 200:
-    #                 data = await response.json()
-    #                 vacancies = data['pageProps']['vacancies']
+        except Exception as e:
+            logger.error(f"Error scraping Azercosmos: {str(e)}")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
-    #                 jobs = []
-
-    #                 for vacancy in vacancies:
-    #                     title = vacancy['title']
-    #                     company = vacancy['company']
-    #                     apply_link = f"https://canscreen.io/vacancies/{vacancy['id']}/"
-
-    #                     jobs.append({
-    #                         'company': company,
-    #                         'vacancy': title,
-    #                         'apply_link': apply_link
-    #                     })
-
-    #                 df = pd.DataFrame(jobs)
-    #                 return df
-    #             else:
-    #                 logger.error(f"Failed to fetch data from the API. Status code: {response.status}")
-    #                 return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])  # Return empty DataFrame on failure
-
-    #     except Exception as e:
-    #         logger.error(f"An error occurred: {e}")
-    #         return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])  # Return empty DataFrame on exception
+    @scraper_error_handler
+    async def scrape_guavalab(self, session):
+        """
+        Scraper for Guavalab careers page
+        """
+        logger.info("Started scraping Guavalab careers")
+        
+        base_url = "https://guavalab.az"
+        careers_url = f"{base_url}/az/careers"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive'
+        }
+        
+        job_listings = []
+        
+        try:
+            # Fetch the main careers page
+            response = await self.fetch_url_async(careers_url, session, headers=headers)
+            
+            if not response:
+                logger.error("Failed to retrieve Guavalab careers page")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            
+            soup = BeautifulSoup(response, 'html.parser')
+            
+            # Find all job cards on the page
+            job_cards = soup.select('div.flex.flex-col.gap-y-6.rounded-2xl.bg-\\[\\#F0F4F3\\].p-8')
+            
+            if not job_cards:
+                # Try alternative selector if the first one doesn't match
+                job_cards = soup.select('div.rounded-2xl.bg-[#F0F4F3]')
+                
+            if not job_cards:
+                logger.warning("No job cards found on Guavalab careers page")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+                
+            logger.info(f"Found {len(job_cards)} job cards on Guavalab careers page")
+            
+            for job_card in job_cards:
+                try:
+                    # Extract job title
+                    title_element = job_card.select_one('h3')
+                    job_title = title_element.text.strip() if title_element else "Unknown Position"
+                    
+                    # Extract application link
+                    link_element = job_card.select_one('a[href]')
+                    relative_link = link_element['href'] if link_element and 'href' in link_element.attrs else None
+                    
+                    # Construct the full application link
+                    apply_link = urljoin(base_url, relative_link) if relative_link else careers_url
+                    
+                    job_listings.append({
+                        'company': 'Guavalab',
+                        'vacancy': job_title,
+                        'apply_link': apply_link
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error parsing job card: {str(e)}")
+                    continue
+            
+            logger.info(f"Successfully scraped {len(job_listings)} jobs from Guavalab")
+            return pd.DataFrame(job_listings)
+            
+        except Exception as e:
+            logger.error(f"Error scraping Guavalab: {str(e)}")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
     @scraper_error_handler
     async def scrape_canscreen(self, session):
