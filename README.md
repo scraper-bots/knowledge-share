@@ -2,7 +2,7 @@
 
 A comprehensive job scraping system that aggregates job listings from 50+ employment websites in Azerbaijan and stores them in a centralized PostgreSQL database.
 
-<img src="/api/placeholder/900/200" alt="JobScraping Banner" />
+<img src="https://images.unsplash.com/photo-1590845947670-c009801ffa74?q=80&w=2959&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" alt="JobScraping Banner" />
 
 ## Overview
 
