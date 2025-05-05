@@ -49,6 +49,8 @@ graph TD
     class H,J storage
     class K monitoring
     class I errorHandling
+```
+
 ## Features
 
 - 🔄 **Automated Scraping**: Runs every 5 hours using GitHub Actions
@@ -103,6 +105,7 @@ sequenceDiagram
     end
     
     Scraper-->>GitHub: Job completed status
+```
 
 ## Tech Stack
 
@@ -178,6 +181,7 @@ flowchart TD
     class log404,logTimeout,logConnection,logForbidden,logGeneric error;
     class calcBackoff1,calcBackoff2,calcBackoff3,sleepBackoff1,sleepBackoff2,sleepBackoff3,retryWithDelay retry;
     class returnData,processData success;
+```
 
 ## Project Structure
 
