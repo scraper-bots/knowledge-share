@@ -16,23 +16,39 @@ The scraper runs automatically every 5 hours via GitHub Actions and stores all j
 
 ## System Architecture
 
-```mermaid
 graph TD
-    A[GitHub Actions] -->|Triggers Every 5 Hours| B[Scraper Script]
-    B -->|Async Requests| C[50+ Job Sources]
-    C -->|HTML/JSON Responses| B
-    B -->|Parsed Data| D[Data Processing]
-    D -->|Cleaned Data| E[(PostgreSQL Database)]
-    E -->|Query Results| F[Monitoring Dashboard]
-    
-    subgraph "Error Handling"
-    G[Error Detection] -->|Log to Database| H[(Error Log Table)]
-    G -->|Exponential Backoff| I[Retry Mechanism]
-    end
-    
-    B -.->|Errors| G
-```
+    classDef jobSources fill:#e6f7ff,stroke:#1890ff,stroke-width:2px
+    classDef dataProcessing fill:#f6ffed,stroke:#52c41a,stroke-width:2px
+    classDef storage fill:#fff2e8,stroke:#fa8c16,stroke-width:2px
+    classDef monitoring fill:#f9f0ff,stroke:#722ed1,stroke-width:2px
+    classDef automation fill:#fff1f0,stroke:#f5222d,stroke-width:2px
+    classDef errorHandling fill:#fff0f6,stroke:#eb2f96,stroke-width:2px
 
+    A[GitHub Actions] -->|Triggers Every 5 Hours| B[Scraper Script]
+    B -->|Async Requests| C[Job Boards]
+    B -->|Async Requests| D[Company Sites]
+    B -->|Async Requests| E[Government Portals]
+    B -->|Async Requests| F[International Platforms]
+    
+    C -->|HTML/JSON| G[Data Processing]
+    D -->|HTML/JSON| G
+    E -->|HTML/JSON| G
+    F -->|HTML/JSON| G
+    
+    G -->|Deduplication| H[(PostgreSQL Database)]
+    G -->|Error Detection| I[Error Handler]
+    
+    I -->|Log Error| J[(Error Log Table)]
+    I -->|Retry Logic| B
+    
+    H -->|Query| K[Monitoring Dashboard]
+    
+    class A automation
+    class B,G dataProcessing
+    class C,D,E,F jobSources
+    class H,J storage
+    class K monitoring
+    class I errorHandling
 ## Features
 
 - 🔄 **Automated Scraping**: Runs every 5 hours using GitHub Actions
@@ -45,25 +61,48 @@ graph TD
 
 ## Data Flow
 
-```mermaid
 sequenceDiagram
-    participant GH as GitHub Actions
-    participant JS as JobScraper
-    participant API as External APIs
-    participant HTML as HTML Sources
+    autonumber
+    participant GitHub as GitHub Actions
+    participant Scraper as JobScraper.py
+    participant Sources as 50+ Job Sources
+    participant Processing as Data Processing
     participant DB as PostgreSQL
     
-    GH->>JS: Trigger scraper.py
-    JS->>API: Async API requests
-    JS->>HTML: Async HTML requests
-    API-->>JS: JSON responses
-    HTML-->>JS: HTML responses
-    JS->>JS: Parse & clean data
-    JS->>DB: TRUNCATE existing data
-    JS->>DB: Batch insert new data
-    DB-->>JS: Confirmation
-    JS-->>GH: Job completed
-```
+    Note over GitHub,DB: Automated Job Collection Process
+    
+    GitHub->>Scraper: Trigger scraping job
+    
+    par Concurrent Requests
+        Scraper->>Sources: Request job boards
+        Sources-->>Scraper: Return HTML/JSON
+        
+        Scraper->>Sources: Request company sites
+        Sources-->>Scraper: Return HTML/JSON
+        
+        Scraper->>Sources: Request government portals
+        Sources-->>Scraper: Return HTML/JSON
+        
+        Scraper->>Sources: Request international platforms
+        Sources-->>Scraper: Return HTML/JSON
+    end
+    
+    Scraper->>Processing: Parse responses
+    Processing->>Processing: Clean & deduplicate data
+    
+    Processing->>DB: TRUNCATE existing data
+    Note right of DB: Removes all previous job data
+    
+    Processing->>DB: Batch insert new job data
+    DB-->>Processing: Confirm insertion
+    
+    alt Error occurs
+        Sources--xScraper: Connection error
+        Scraper->>DB: Log error to scraper_errors table
+        Scraper->>Sources: Retry with exponential backoff
+    end
+    
+    Scraper-->>GitHub: Job completed status
 
 ## Tech Stack
 
@@ -77,19 +116,68 @@ sequenceDiagram
 
 ## Error Handling Architecture
 
-```mermaid
 flowchart TD
-    A[Scraper Request] --> B{Request Successful?}
-    B -->|Yes| C[Process Data]
-    B -->|No| D[Error Handler]
-    D --> E{Retry Count < Max?}
-    E -->|Yes| F[Exponential Backoff]
-    F --> G[Increase Retry Count]
-    G --> A
-    E -->|No| H[Log Error to Database]
-    H --> I[Return Empty DataFrame]
-    C --> J[Return Data DataFrame]
-```
+    start([Start Request]) --> request[Send HTTP Request]
+    request --> checkResponse{Response OK?}
+    
+    checkResponse -->|Yes| processData[Parse Response Data]
+    checkResponse -->|No| errorType{Error Type?}
+    
+    errorType -->|HTTP 404| log404[Log Not Found Error]
+    errorType -->|HTTP 403| retryWithDelay[Add Referer Header & Delay]
+    errorType -->|Timeout| checkRetries1{Retry Count < Max?}
+    errorType -->|SSL Error| disableSSL[Disable SSL Verification]
+    errorType -->|Connection| checkRetries2{Retry Count < Max?}
+    errorType -->|Other| logGeneric[Log Generic Error]
+    
+    retryWithDelay --> checkRetries3{Retry Count < Max?}
+    disableSSL --> request
+    
+    checkRetries1 -->|Yes| calcBackoff1[Calculate Backoff]
+    checkRetries1 -->|No| logTimeout[Log Timeout Error]
+    
+    checkRetries2 -->|Yes| calcBackoff2[Calculate Backoff]
+    checkRetries2 -->|No| logConnection[Log Connection Error]
+    
+    checkRetries3 -->|Yes| calcBackoff3[Calculate Backoff]
+    checkRetries3 -->|No| logForbidden[Log Forbidden Error]
+    
+    calcBackoff1 --> sleepBackoff1[Sleep for Backoff Period]
+    calcBackoff2 --> sleepBackoff2[Sleep for Backoff Period]
+    calcBackoff3 --> sleepBackoff3[Sleep for Backoff Period]
+    
+    sleepBackoff1 --> request
+    sleepBackoff2 --> request
+    sleepBackoff3 --> request
+    
+    log404 --> returnEmpty1[Return Empty DataFrame]
+    logTimeout --> returnEmpty2[Return Empty DataFrame]
+    logConnection --> returnEmpty3[Return Empty DataFrame]
+    logForbidden --> returnEmpty4[Return Empty DataFrame]
+    logGeneric --> returnEmpty5[Return Empty DataFrame]
+    
+    processData --> returnData[Return Data DataFrame]
+    
+    returnEmpty1 --> endEmpty([End with Empty Result])
+    returnEmpty2 --> endEmpty
+    returnEmpty3 --> endEmpty
+    returnEmpty4 --> endEmpty
+    returnEmpty5 --> endEmpty
+    returnData --> endData([End with Data])
+    
+    classDef process fill:#d4f1f9,stroke:#05a8d6,stroke-width:2px;
+    classDef decision fill:#ffe6cc,stroke:#f9a825,stroke-width:2px;
+    classDef error fill:#ffcccc,stroke:#e53935,stroke-width:2px;
+    classDef retry fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
+    classDef success fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
+    classDef endpoint fill:#f5f5f5,stroke:#666666,stroke-width:2px;
+    
+    class start,endEmpty,endData endpoint;
+    class request,processData,disableSSL process;
+    class checkResponse,checkRetries1,checkRetries2,checkRetries3,errorType decision;
+    class log404,logTimeout,logConnection,logForbidden,logGeneric error;
+    class calcBackoff1,calcBackoff2,calcBackoff3,sleepBackoff1,sleepBackoff2,sleepBackoff3,retryWithDelay retry;
+    class returnData,processData success;
 
 ## Project Structure
 
