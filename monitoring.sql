@@ -1,4 +1,3 @@
-
 WITH latest_scrape AS (
   SELECT MAX(created_at) as latest_date
   FROM public.jobs_jobpost
