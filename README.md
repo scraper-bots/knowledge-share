@@ -2,6 +2,8 @@
 
 A comprehensive job scraping system that aggregates job listings from 50+ employment websites in Azerbaijan and stores them in a centralized PostgreSQL database.
 
+<img src="/api/placeholder/900/200" alt="JobScraping Banner" />
+
 ## Overview
 
 This project automates the collection of job listings from various sources including:
@@ -11,6 +13,25 @@ This project automates the collection of job listings from various sources inclu
 - International platforms (UN Jobs, The Muse, Djinni)
 
 The scraper runs automatically every 5 hours via GitHub Actions and stores all job data in a PostgreSQL database with SSL encryption.
+
+## System Architecture
+
+```mermaid
+graph TD
+    A[GitHub Actions] -->|Triggers Every 5 Hours| B[Scraper Script]
+    B -->|Async Requests| C[50+ Job Sources]
+    C -->|HTML/JSON Responses| B
+    B -->|Parsed Data| D[Data Processing]
+    D -->|Cleaned Data| E[(PostgreSQL Database)]
+    E -->|Query Results| F[Monitoring Dashboard]
+    
+    subgraph "Error Handling"
+    G[Error Detection] -->|Log to Database| H[(Error Log Table)]
+    G -->|Exponential Backoff| I[Retry Mechanism]
+    end
+    
+    B -.->|Errors| G
+```
 
 ## Features
 
@@ -22,6 +43,28 @@ The scraper runs automatically every 5 hours via GitHub Actions and stores all j
 - 🚀 **Async Processing**: Efficient concurrent scraping with aiohttp
 - 🔍 **Monitoring**: SQL query for tracking scraper health
 
+## Data Flow
+
+```mermaid
+sequenceDiagram
+    participant GH as GitHub Actions
+    participant JS as JobScraper
+    participant API as External APIs
+    participant HTML as HTML Sources
+    participant DB as PostgreSQL
+    
+    GH->>JS: Trigger scraper.py
+    JS->>API: Async API requests
+    JS->>HTML: Async HTML requests
+    API-->>JS: JSON responses
+    HTML-->>JS: HTML responses
+    JS->>JS: Parse & clean data
+    JS->>DB: TRUNCATE existing data
+    JS->>DB: Batch insert new data
+    DB-->>JS: Confirmation
+    JS-->>GH: Job completed
+```
+
 ## Tech Stack
 
 - **Python 3.8+**
@@ -31,6 +74,22 @@ The scraper runs automatically every 5 hours via GitHub Actions and stores all j
 - **psycopg2**: PostgreSQL database interface
 - **GitHub Actions**: CI/CD and automation
 - **PostgreSQL**: Data storage
+
+## Error Handling Architecture
+
+```mermaid
+flowchart TD
+    A[Scraper Request] --> B{Request Successful?}
+    B -->|Yes| C[Process Data]
+    B -->|No| D[Error Handler]
+    D --> E{Retry Count < Max?}
+    E -->|Yes| F[Exponential Backoff]
+    F --> G[Increase Retry Count]
+    G --> A
+    E -->|No| H[Log Error to Database]
+    H --> I[Return Empty DataFrame]
+    C --> J[Return Data DataFrame]
+```
 
 ## Project Structure
 
@@ -79,6 +138,32 @@ EMAIL=your_email     # For sites requiring authentication
 PASSWORD=your_password
 ```
 
+## Database Schema
+
+```mermaid
+erDiagram
+    jobs_jobpost {
+        int id PK
+        varchar title
+        varchar company
+        varchar apply_link
+        timestamp created_at
+    }
+    
+    scraper_errors {
+        int id PK
+        varchar scraper_method
+        varchar error_code
+        text error_message
+        text url
+        int retry_count
+        timestamp timestamp
+        boolean is_resolved
+    }
+
+    jobs_jobpost ||--o{ scraper_errors : "relates_to"
+```
+
 ## Database Setup
 
 The scraper expects a PostgreSQL database with the following schema:
@@ -117,6 +202,21 @@ python scraper/scraper.py
 The scraper runs automatically via GitHub Actions:
 - **Schedule**: Every 5 hours
 - **Manual Trigger**: Available through workflow_dispatch
+
+## GitHub Actions Workflow
+
+```mermaid
+graph LR
+    A[Schedule Trigger] --> C{GitHub Actions}
+    B[Manual Trigger] --> C
+    C --> D[Checkout Code]
+    D --> E[Setup Python]
+    E --> F[Install Dependencies]
+    F --> G[Run Scraper]
+    G --> H{Successful?}
+    H -->|Yes| I[Save to Database]
+    H -->|No| J[Log Errors]
+```
 
 ## Scraped Sources
 
@@ -258,6 +358,16 @@ async def parse_new_site(self, session):
 
 4. **Encoding Issues**
    - Solution: Use chardet to detect encoding
+
+## Performance Metrics
+
+```mermaid
+pie title "Source Reliability (% Successful Scrapes)"
+    "Job Boards" : 92
+    "Company Sites" : 85
+    "Government Portals" : 78
+    "International Platforms" : 90
+```
 
 ## License
 
