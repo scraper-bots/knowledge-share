@@ -258,49 +258,17 @@ class JobScraper:
                     conn.autocommit = False
                     
                     try:
-                        # Step 1: Data purification - remove duplicates within the DataFrame
-                        logger.info("Starting data purification process...")
-                        
-                        # Create a copy to avoid SettingWithCopyWarning
+                        # Step 1: Purify data by removing duplicates
                         df = df.copy()
-                        
-                        # Remove exact duplicates
-                        original_count = len(df)
                         df = df.drop_duplicates(subset=['company', 'vacancy', 'apply_link'])
-                        duplicates_removed = original_count - len(df)
-                        logger.info(f"Removed {duplicates_removed} duplicate entries from scraped data")
                         
-                        # Normalize data for better deduplication
-                        df['company'] = df['company'].astype(str).str.strip().str.lower()
-                        df['vacancy'] = df['vacancy'].astype(str).str.strip()
-                        df['apply_link'] = df['apply_link'].astype(str).str.strip()
+                        # Step 2: Delete all existing data
+                        logger.info("Deleting all existing data from jobs_jobpost table...")
+                        delete_query = sql.SQL("TRUNCATE TABLE jobs_jobpost CASCADE")
+                        cur.execute(delete_query)
                         
-                        # Remove rows with empty critical fields
-                        df = df[df['company'].notna() & (df['company'] != '') & 
-                            df['vacancy'].notna() & (df['vacancy'] != '') & 
-                            df['apply_link'].notna() & (df['apply_link'] != '')]
-                        
-                        logger.info(f"After purification: {len(df)} valid entries remaining")
-                        
-                        if df.empty:
-                            logger.warning("No valid data remains after purification.")
-                            conn.rollback()
-                            return
-                        
-                        # Step 2: Create temporary table for staging
-                        logger.info("Creating temporary staging table...")
-                        create_temp_table = sql.SQL("""
-                            CREATE TEMPORARY TABLE temp_jobs (
-                                title VARCHAR(500),
-                                company VARCHAR(500),
-                                apply_link VARCHAR(1000),
-                                UNIQUE(company, title, apply_link)
-                            ) ON COMMIT DROP;
-                        """)
-                        cur.execute(create_temp_table)
-                        
-                        # Step 3: Insert new data into temporary table (with conflict resolution)
-                        logger.info("Inserting data into temporary table...")
+                        # Step 3: Insert new data
+                        logger.info(f"Inserting {len(df)} new records...")
                         values = [
                             (
                                 row.get('vacancy', '')[:500],
@@ -310,123 +278,24 @@ class JobScraper:
                             for _, row in df.iterrows()
                         ]
                         
-                        insert_temp_query = sql.SQL("""
-                            INSERT INTO temp_jobs (title, company, apply_link)
+                        insert_query = sql.SQL("""
+                            INSERT INTO jobs_jobpost (title, company, apply_link)
                             VALUES %s
-                            ON CONFLICT DO NOTHING
                         """)
-                        extras.execute_values(cur, insert_temp_query, values, page_size=batch_size)
-                        
-                        # Step 4: Get count of existing records that match new data
-                        logger.info("Checking for existing matching records...")
-                        count_existing_query = sql.SQL("""
-                            SELECT COUNT(*) 
-                            FROM jobs_jobpost j
-                            JOIN temp_jobs t ON 
-                                LOWER(j.company) = LOWER(t.company) AND
-                                j.title = t.title AND
-                                j.apply_link = t.apply_link
-                        """)
-                        cur.execute(count_existing_query)
-                        existing_count = cur.fetchone()[0]
-                        logger.info(f"Found {existing_count} matching existing records")
-                        
-                        # Step 5: If we have mostly new data (>50% new), proceed with truncate
-                        new_records_count = len(df) - existing_count
-                        if new_records_count > len(df) * 0.5:  # More than 50% new data
-                            logger.info("Significant new data detected. Proceeding with truncate and insert...")
-                            
-                            # Truncate existing data
-                            logger.info("Truncating existing data from jobs_jobpost table...")
-                            delete_query = sql.SQL("TRUNCATE TABLE jobs_jobpost CASCADE")
-                            cur.execute(delete_query)
-                            
-                            # Insert from temporary table
-                            logger.info("Inserting new data from temporary table...")
-                            insert_from_temp_query = sql.SQL("""
-                                INSERT INTO jobs_jobpost (title, company, apply_link)
-                                SELECT title, company, apply_link FROM temp_jobs
-                            """)
-                            cur.execute(insert_from_temp_query)
-                            
-                            # Get insertion count
-                            cur.execute("SELECT COUNT(*) FROM jobs_jobpost")
-                            final_count = cur.fetchone()[0]
-                            
-                            logger.info(f"Successfully replaced data. {final_count} job posts now in database.")
-                        else:
-                            # Alternative approach: Update existing and insert only new records
-                            logger.info("Minimal new data detected. Using incremental update approach...")
-                            
-                            # Insert only new records
-                            insert_new_query = sql.SQL("""
-                                INSERT INTO jobs_jobpost (title, company, apply_link)
-                                SELECT t.title, t.company, t.apply_link
-                                FROM temp_jobs t
-                                LEFT JOIN jobs_jobpost j ON 
-                                    LOWER(j.company) = LOWER(t.company) AND
-                                    j.title = t.title AND
-                                    j.apply_link = t.apply_link
-                                WHERE j.id IS NULL
-                            """)
-                            cur.execute(insert_new_query)
-                            
-                            inserted_count = cur.rowcount
-                            logger.info(f"Inserted {inserted_count} new job posts without truncating.")
+                        extras.execute_values(cur, insert_query, values, page_size=batch_size)
                         
                         # Commit transaction
                         conn.commit()
-                        logger.info("Database transaction completed successfully.")
+                        logger.info(f"Successfully replaced data with {len(df)} job posts.")
                         
                     except Exception as e:
-                        # Rollback on error
                         conn.rollback()
-                        logger.error(f"Error during database operation. Transaction rolled back. Error: {e}")
-                        
-                        # Log to error table synchronously (without await)
-                        # Create a new connection just for error logging
-                        try:
-                            with psycopg2.connect(**self.db_params) as error_conn:
-                                with error_conn.cursor() as error_cur:
-                                    # Create error table if it doesn't exist
-                                    create_error_table = sql.SQL("""
-                                        CREATE TABLE IF NOT EXISTS scraper_errors (
-                                            id SERIAL PRIMARY KEY,
-                                            scraper_method VARCHAR(255) NOT NULL,
-                                            error_code VARCHAR(50) NOT NULL,
-                                            error_message TEXT NOT NULL,
-                                            url TEXT,
-                                            retry_count INTEGER,
-                                            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                            is_resolved BOOLEAN DEFAULT FALSE
-                                        )
-                                    """)
-                                    error_cur.execute(create_error_table)
-                                    
-                                    # Insert error record
-                                    insert_error_query = sql.SQL("""
-                                        INSERT INTO scraper_errors 
-                                        (scraper_method, error_code, error_message, url, retry_count)
-                                        VALUES (%s, %s, %s, %s, %s)
-                                    """)
-                                    
-                                    error_cur.execute(insert_error_query, (
-                                        "save_to_db",
-                                        type(e).__name__,
-                                        str(e),
-                                        "database_operation",
-                                        None
-                                    ))
-                                    error_conn.commit()
-                                    logger.info("Error logged to database")
-                        except Exception as log_error:
-                            logger.error(f"Failed to log error to database: {log_error}")
-                        
+                        logger.error(f"Error during database operation: {e}")
                         raise
                             
         except (Exception, psycopg2.DatabaseError) as error:
             logger.error(f"Error saving data to the database: {error}")
-    
+     
     async def get_data_async(self):
         """
         Asynchronously fetch job data from multiple sources with improved error handling
