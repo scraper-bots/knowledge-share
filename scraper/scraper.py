@@ -246,6 +246,76 @@ class JobScraper:
         
         return None
 
+    def determine_source(self, apply_link):
+        """
+        Determine the source based on the apply_link pattern.
+        This uses the patterns from monitoring.sql.
+        """
+        source_patterns = {
+            'Smartjob': '%smartjob%',
+            'Glorri': '%glorri%',
+            'Azercell': '%azercell%',
+            'Azerconnect': '%azerconnect.az%',
+            'Djinni': '%djinni%',
+            'ABB': '%abb-bank%',
+            'HelloJob': '%hellojob%',
+            'Boss.az': '%boss.az%',
+            'eJob': '%ejob%',
+            'Vakansiya.az': '%vakansiya.az%',
+            'Ishelanlari': '%ishelanlari%',
+            'Banker.az': '%banker%',
+            'Offer.az': '%offer.az%',
+            'Isveren': '%isveren%',
+            'Isqur': '%isqur%',
+            'Kapital Bank': '%kapitalbank%',
+            'Bank of Baku': '%bankofbaku%',
+            'Jobbox': '%jobbox%',
+            'Vakansiya.biz': '%vakansiya.biz%',
+            'ITS Gov': '%its.gov%',
+            'TABIB': '%tabib%',
+            'ProJobs': '%projobs%',
+            'AzerGold': '%azergold%',
+            'Konsis': '%konsis%',
+            'Baku Electronics': '%bakuelectronics.az%',
+            'ASCO': '%asco%',
+            'CBAR': '%cbar%',
+            'ADA': '%ada.edu%',
+            'JobFinder': '%jobfinder%',
+            'Regulator': '%regulator%',
+            'eKaryera': '%ekaryera%',
+            'Bravo': '%bravosupermarket%',
+            'MDM': '%mdm.gov%',
+            'ARTI': '%arti.edu%',
+            'Staffy': '%staffy%',
+            'Position.az': '%position.az%',
+            'HRIN': '%hrin.co%',
+            'UN Jobs': '%un.org%',
+            'Oil Fund': '%oilfund%',
+            '1is.az': '%1is.az%',
+            'The Muse': '%themuse%',
+            'DEJobs': '%dejobs%',
+            'HCB': '%hcb.az%',
+            'BFB': '%bfb.az%',
+            'Airswift': '%airswift%',
+            'Orion': '%orionjobs%',
+            'HRC Baku': '%hrcbaku%',
+            'JobSearch': '%jobsearch%',
+            'CanScreen': '%canscreen%',
+            'Azercosmos': '%azercosmos%',
+            'Guavalab': '%guavalab%'
+        }
+        
+        if not apply_link:
+            return 'Unknown'
+            
+        for source, pattern in source_patterns.items():
+            # Convert SQL-style pattern to Python regex pattern
+            regex_pattern = pattern.replace('%', '.*')
+            if re.search(regex_pattern, apply_link, re.IGNORECASE):
+                return source
+                
+        return 'Other'  # Default source if no pattern matches
+
     def save_to_db(self, df, batch_size=100):
         if df.empty:
             logger.warning("No data to save to the database.")
@@ -262,6 +332,9 @@ class JobScraper:
                         df = df.copy()
                         df = df.drop_duplicates(subset=['company', 'vacancy', 'apply_link'])
                         
+                        # Add source column based on apply_link patterns
+                        df['source'] = df['apply_link'].apply(self.determine_source)
+                        
                         # Step 2: Delete all existing data
                         logger.info("Deleting all existing data from jobs_jobpost table...")
                         delete_query = sql.SQL("TRUNCATE TABLE jobs_jobpost CASCADE")
@@ -273,13 +346,14 @@ class JobScraper:
                             (
                                 row.get('vacancy', '')[:500],
                                 row.get('company', '')[:500],
-                                row.get('apply_link', '')[:1000]
+                                row.get('apply_link', '')[:1000],
+                                row.get('source', '')[:100]  # Add source to the values tuple
                             )
                             for _, row in df.iterrows()
                         ]
                         
                         insert_query = sql.SQL("""
-                            INSERT INTO jobs_jobpost (title, company, apply_link)
+                            INSERT INTO jobs_jobpost (title, company, apply_link, source)
                             VALUES %s
                         """)
                         extras.execute_values(cur, insert_query, values, page_size=batch_size)
@@ -295,7 +369,7 @@ class JobScraper:
                             
         except (Exception, psycopg2.DatabaseError) as error:
             logger.error(f"Error saving data to the database: {error}")
-     
+  
     async def get_data_async(self):
         """
         Asynchronously fetch job data from multiple sources with improved error handling
