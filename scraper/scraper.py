@@ -53,34 +53,23 @@ class JobScraper:
         try:
             with psycopg2.connect(**self.db_params) as conn:
                 with conn.cursor() as cur:
-                    # Create table if it doesn't exist
-                    create_table_query = sql.SQL("""
-                        CREATE TABLE IF NOT EXISTS scraper_errors (
-                            id SERIAL PRIMARY KEY,
-                            scraper_method VARCHAR(255) NOT NULL,
-                            error_code VARCHAR(50) NOT NULL,
-                            error_message TEXT NOT NULL,
-                            url TEXT,
-                            retry_count INTEGER,
-                            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            is_resolved BOOLEAN DEFAULT FALSE
-                        )
-                    """)
-                    cur.execute(create_table_query)
-
-                    # Insert error record
+                    # Format the error message to include both error code and message
+                    combined_error = f"{error_code}: {error_message}"
+                    if url:
+                        combined_error += f" (URL: {url})"
+                    if retry_count is not None:
+                        combined_error += f" (Retry count: {retry_count})"
+                    
+                    # Insert error record using the actual schema
                     insert_query = sql.SQL("""
                         INSERT INTO scraper_errors 
-                        (scraper_method, error_code, error_message, url, retry_count)
-                        VALUES (%s, %s, %s, %s, %s)
+                        (source, error)
+                        VALUES (%s, %s)
                     """)
                     
                     cur.execute(insert_query, (
-                        scraper_method,
-                        str(error_code),
-                        str(error_message),
-                        url,
-                        retry_count
+                        scraper_method,  # This will go into the 'source' column
+                        combined_error   # This will go into the 'error' column
                     ))
                     conn.commit()
                     logger.info(f"Error logged for {scraper_method}")
@@ -255,7 +244,7 @@ class JobScraper:
             'Smartjob': '%smartjob%',
             'Glorri': '%glorri%',
             'Azercell': '%azercell%',
-            'Azerconnect': '%azerconnect.az%',
+            'Azerconnect': '%oraclecloud%',
             'Djinni': '%djinni%',
             'ABB': '%abb-bank%',
             'HelloJob': '%hellojob%',
@@ -263,6 +252,7 @@ class JobScraper:
             'eJob': '%ejob%',
             'Vakansiya.az': '%vakansiya.az%',
             'Ishelanlari': '%ishelanlari%',
+            'Is-elanlari':'%is-elanlari%',
             'Banker.az': '%banker%',
             'Offer.az': '%offer.az%',
             'Isveren': '%isveren%',
@@ -288,7 +278,7 @@ class JobScraper:
             'ARTI': '%arti.edu%',
             'Staffy': '%staffy%',
             'Position.az': '%position.az%',
-            'HRIN': '%hrin.co%',
+            'HRIN': '%hrin.az%',
             'UN Jobs': '%un.org%',
             'Oil Fund': '%oilfund%',
             '1is.az': '%1is.az%',
@@ -328,9 +318,14 @@ class JobScraper:
                     conn.autocommit = False
                     
                     try:
-                        # Step 1: Purify data by removing duplicates
+                        # Step 1: Purify data by removing duplicates and invalid entries
                         df = df.copy()
                         df = df.drop_duplicates(subset=['company', 'vacancy', 'apply_link'])
+                        
+                        # Filter out rows where all values are 'n/a'
+                        df = df[~((df['company'] == 'n/a') & 
+                                (df['vacancy'] == 'n/a') & 
+                                (df['apply_link'] == 'n/a'))]
                         
                         # Add source column based on apply_link patterns
                         df['source'] = df['apply_link'].apply(self.determine_source)
