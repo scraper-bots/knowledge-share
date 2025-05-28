@@ -1,6 +1,6 @@
 WITH latest_scrape AS (
   SELECT MAX(created_at) as latest_date
-  FROM public.jobs_jobpost
+  FROM scraper.jobs_jobpost  -- UPDATE THIS LINE
 ),
 website_patterns AS (
   SELECT *
@@ -63,7 +63,7 @@ jobs_with_row_numbers AS (
     j.*,
     ROW_NUMBER() OVER (PARTITION BY wp.website_name ORDER BY j.title) as rn
   FROM website_patterns wp
-  LEFT JOIN public.jobs_jobpost j ON 
+  LEFT JOIN scraper.jobs_jobpost j ON  -- UPDATE THIS LINE
     j.apply_link LIKE wp.url_pattern
     AND j.created_at = (SELECT latest_date FROM latest_scrape)
 )
