@@ -43,7 +43,8 @@ class JobScraper:
             'password': os.getenv('DB_PASSWORD'),
             'host': os.getenv('DB_HOST'),
             'port': os.getenv('DB_PORT'),
-            'sslmode': 'require'
+            'sslmode': 'require',
+            'options': '-c search_path=scraper,public'
         }
 
     async def log_scraper_error(self, scraper_method: str, error_code: str, error_message: str, url: str = None, retry_count: int = None):
@@ -60,9 +61,9 @@ class JobScraper:
                     if retry_count is not None:
                         combined_error += f" (Retry count: {retry_count})"
                     
-                    # Insert error record using the actual schema
+                    # Insert error record using the scraper schema - UPDATE THIS LINE
                     insert_query = sql.SQL("""
-                        INSERT INTO scraper_errors 
+                        INSERT INTO scraper.scraper_errors 
                         (source, error)
                         VALUES (%s, %s)
                     """)
@@ -330,25 +331,25 @@ class JobScraper:
                         # Add source column based on apply_link patterns
                         df['source'] = df['apply_link'].apply(self.determine_source)
                         
-                        # Step 2: Delete all existing data
-                        logger.info("Deleting all existing data from jobs_jobpost table...")
-                        delete_query = sql.SQL("TRUNCATE TABLE jobs_jobpost CASCADE")
+                        # Step 2: Delete all existing data - UPDATE THIS LINE
+                        logger.info("Deleting all existing data from scraper.jobs_jobpost table...")
+                        delete_query = sql.SQL("TRUNCATE TABLE scraper.jobs_jobpost CASCADE")
                         cur.execute(delete_query)
                         
-                        # Step 3: Insert new data
+                        # Step 3: Insert new data - UPDATE THIS LINE
                         logger.info(f"Inserting {len(df)} new records...")
                         values = [
                             (
                                 row.get('vacancy', '')[:500],
                                 row.get('company', '')[:500],
                                 row.get('apply_link', '')[:1000],
-                                row.get('source', '')[:100]  # Add source to the values tuple
+                                row.get('source', '')[:100]
                             )
                             for _, row in df.iterrows()
                         ]
                         
                         insert_query = sql.SQL("""
-                            INSERT INTO jobs_jobpost (title, company, apply_link, source)
+                            INSERT INTO scraper.jobs_jobpost (title, company, apply_link, source)
                             VALUES %s
                         """)
                         extras.execute_values(cur, insert_query, values, page_size=batch_size)
@@ -364,6 +365,8 @@ class JobScraper:
                             
         except (Exception, psycopg2.DatabaseError) as error:
             logger.error(f"Error saving data to the database: {error}")
+                        
+
   
     async def get_data_async(self):
         """
