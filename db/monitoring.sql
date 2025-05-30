@@ -55,7 +55,8 @@ website_patterns AS (
     ('JobSearch', '%jobsearch%'),
     ('CanScreen', '%canscreen%'),
     ('Azercosmos', '%azercosmos%'),
-    ('Guavalab', '%guavalab%')
+    ('Guavalab', '%guavalab%'),
+    ('Fintech Farm', '%fintech-farm%')
   ) AS t(website_name, url_pattern)
 ),
 jobs_with_row_numbers AS (
