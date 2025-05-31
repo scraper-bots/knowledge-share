@@ -110,8 +110,8 @@ flowchart TD
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/Ismat-Samadov/JobScraping.git
-cd JobScraping
+git clone https://github.com/Ismat-Samadov/birjobScraper.git
+cd birjobScraper
 ```
 
 2. Create a virtual environment:
