@@ -1,62 +1,68 @@
+-- UPDATED MONITORING QUERY FOR MODULAR SCRAPER
+-- Synchronized with base_scraper.py source patterns
+
 WITH latest_scrape AS (
   SELECT MAX(created_at) as latest_date
-  FROM scraper.jobs_jobpost  -- UPDATE THIS LINE
+  FROM scraper.jobs_jobpost
 ),
 website_patterns AS (
   SELECT *
   FROM (VALUES
-    ('Smartjob', '%smartjob%'),
-    ('Glorri', '%glorri%'),
-    ('Azercell', '%azercell%'),
-    ('Azerconnect', '%azerconnect.az%'),
-    ('Djinni', '%djinni%'),
-    ('ABB', '%abb-bank%'),
-    ('HelloJob', '%hellojob%'),
-    ('Boss.az', '%boss.az%'),
-    ('eJob', '%ejob%'),
-    ('Vakansiya.az', '%vakansiya.az%'),
-    ('Ishelanlari', '%ishelanlari%'),
-    ('Banker.az', '%banker%'),
-    ('Offer.az', '%offer.az%'),
-    ('Isveren', '%isveren%'),
-    ('Isqur', '%isqur%'),
-    ('Kapital Bank', '%kapitalbank%'),
-    ('Bank of Baku', '%bankofbaku%'),
-    ('Jobbox', '%jobbox%'),
-    ('Vakansiya.biz', '%vakansiya.biz%'),
-    ('ITS Gov', '%its.gov%'),
-    ('TABIB', '%tabib%'),
-    ('ProJobs', '%projobs%'),
-    ('AzerGold', '%azergold%'),
-    ('Konsis', '%konsis%'),
-    ('Baku Electronics', '%bakuelectronics.az%'),
-    ('ASCO', '%asco%'),
-    ('CBAR', '%cbar%'),
-    ('ADA', '%ada.edu%'),
-    ('JobFinder', '%jobfinder%'),
-    ('Regulator', '%regulator%'),
-    ('eKaryera', '%ekaryera%'),
-    ('Bravo', '%bravosupermarket%'),
-    ('MDM', '%mdm.gov%'),
-    ('ARTI', '%arti.edu%'),
-    ('Staffy', '%staffy%'),
-    ('Position.az', '%position.az%'),
-    ('HRIN', '%hrin.co%'),
-    ('UN Jobs', '%un.org%'),
-    ('Oil Fund', '%oilfund%'),
     ('1is.az', '%1is.az%'),
-    ('The Muse', '%themuse%'),
-    ('DEJobs', '%dejobs%'),
-    ('HCB', '%hcb.az%'),
-    ('BFB', '%bfb.az%'),
+    ('ABB', '%abb-bank%'),
+    ('ADA', '%ada.edu%'),
     ('Airswift', '%airswift%'),
-    ('Orion', '%orionjobs%'),
-    ('HRC Baku', '%hrcbaku%'),
-    ('JobSearch', '%jobsearch%'),
-    ('CanScreen', '%canscreen%'),
+    ('ARTI', '%arti.edu%'),
+    ('ASCO', '%asco%'),
+    ('Azercell', '%azercell%'),
+    ('Azerconnect', '%oraclecloud%'),  -- UPDATED: was %azerconnect.az%
     ('Azercosmos', '%azercosmos%'),
+    ('AzerGold', '%azergold%'),
+    ('Baku Electronics', '%bakuelectronics.az%'),
+    ('Bank of Baku', '%bankofbaku%'),
+    ('Banker.az', '%banker%'),
+    ('BFB', '%bfb.az%'),
+    ('Boss.az', '%boss.az%'),
+    ('Bravo', '%bravosupermarket%'),
+    ('Busy', '%busy%'),
+    ('CanScreen', '%canscreen%'),
+    ('CBAR', '%cbar%'),
+    ('DEJobs', '%dejobs%'),
+    ('Djinni', '%djinni%'),
+    ('eJob', '%ejob%'),
+    ('eKaryera', '%ekaryera%'),
+    ('Fintech Farm', '%fintech-farm%'),
+    ('Glorri', '%glorri%'),
     ('Guavalab', '%guavalab%'),
-    ('Fintech Farm', '%fintech-farm%')
+    ('HCB', '%hcb.az%'),
+    ('HelloJob', '%hellojob%'),
+    ('HRC Baku', '%hrcbaku%'),
+    ('HRIN', '%hrin.az%'),  -- UPDATED: was %hrin.co%
+    ('Is-elanlari', '%is-elanlari%'),  -- Added missing source
+    ('Ishelanlari', '%ishelanlari%'),
+    ('Isqur', '%isqur%'),
+    ('Isveren', '%isveren%'),
+    ('ITS Gov', '%its.gov%'),
+    ('Jobbox', '%jobbox%'),
+    ('JobFinder', '%jobfinder%'),
+    ('JobSearch', '%jobsearch%'),
+    ('Kapital Bank', '%kapitalbank%'),
+    ('Konsis', '%konsis%'),
+    ('MDM', '%mdm.gov%'),
+    ('Offer.az', '%offer.az%'),
+    ('Oil Fund', '%oilfund%'),
+    ('Orion', '%orionjobs%'),
+    ('Position.az', '%position.az%'),
+    ('ProJobs', '%projobs%'),
+    ('Regulator', '%regulator%'),
+    ('Smartjob', '%smartjob%'),
+    ('Staffy', '%staffy%'),
+    ('TABIB', '%tabib%'),
+    ('The Muse', '%themuse%'),
+    ('UN Jobs', '%un.org%'),
+    ('Vakansiya.az', '%vakansiya.az%'),
+    ('Vakansiya.biz', '%vakansiya.biz%'),
+    ('Ziraat', '%ziraat%')
   ) AS t(website_name, url_pattern)
 ),
 jobs_with_row_numbers AS (
@@ -64,7 +70,7 @@ jobs_with_row_numbers AS (
     j.*,
     ROW_NUMBER() OVER (PARTITION BY wp.website_name ORDER BY j.title) as rn
   FROM website_patterns wp
-  LEFT JOIN scraper.jobs_jobpost j ON  -- UPDATE THIS LINE
+  LEFT JOIN scraper.jobs_jobpost j ON 
     j.apply_link LIKE wp.url_pattern
     AND j.created_at = (SELECT latest_date FROM latest_scrape)
 )
@@ -95,3 +101,38 @@ ORDER BY
     "Status" ASC,
     "Job Count" DESC,
     "Website";
+
+-- SUMMARY QUERY: Overall scraping performance
+SELECT 
+    COUNT(*) as "Total Jobs",
+    COUNT(DISTINCT source) as "Active Sources", 
+    MAX(created_at) as "Latest Scrape",
+    MIN(created_at) as "Earliest Job",
+    (SELECT COUNT(*) FROM (VALUES 
+        ('1is.az'),('ABB'),('ADA'),('Airswift'),('ARTI'),('ASCO'),('Azercell'),
+        ('Azerconnect'),('Azercosmos'),('AzerGold'),('Baku Electronics'),
+        ('Bank of Baku'),('Banker.az'),('BFB'),('Boss.az'),('Bravo'),('Busy'),
+        ('CanScreen'),('CBAR'),('DEJobs'),('Djinni'),('eJob'),('eKaryera'),
+        ('Fintech Farm'),('Glorri'),('Guavalab'),('HCB'),('HelloJob'),
+        ('HRC Baku'),('HRIN'),('Is-elanlari'),('Ishelanlari'),('Isqur'),
+        ('Isveren'),('ITS Gov'),('Jobbox'),('JobFinder'),('JobSearch'),
+        ('Kapital Bank'),('Konsis'),('MDM'),('Offer.az'),('Oil Fund'),
+        ('Orion'),('Position.az'),('ProJobs'),('Regulator'),('Smartjob'),
+        ('Staffy'),('TABIB'),('The Muse'),('UN Jobs'),('Vakansiya.az'),
+        ('Vakansiya.biz'),('Ziraat')
+    ) AS expected_sources(name)) as "Expected Sources",
+    ROUND(
+        (COUNT(DISTINCT source)::decimal / 55) * 100, 1
+    ) as "Source Coverage %"
+FROM scraper.jobs_jobpost 
+WHERE created_at = (SELECT MAX(created_at) FROM scraper.jobs_jobpost);
+
+-- TOP PERFORMING SOURCES
+SELECT 
+    source as "Source",
+    COUNT(*) as "Jobs",
+    ROUND((COUNT(*)::decimal / (SELECT COUNT(*) FROM scraper.jobs_jobpost WHERE created_at = (SELECT MAX(created_at) FROM scraper.jobs_jobpost))) * 100, 1) as "Share %"
+FROM scraper.jobs_jobpost 
+WHERE created_at = (SELECT MAX(created_at) FROM scraper.jobs_jobpost)
+GROUP BY source
+ORDER BY COUNT(*) desc;
