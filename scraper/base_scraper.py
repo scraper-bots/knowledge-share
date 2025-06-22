@@ -4,6 +4,7 @@ import aiohttp
 import asyncio
 import pandas as pd
 import psycopg2
+from psycopg2 import sql, extras
 from psycopg2.extras import RealDictCursor
 import json
 import re
@@ -223,7 +224,7 @@ class BaseScraper:
                         
                         # Step 2: Delete all existing data - COMPLETE REPLACEMENT
                         logger.info("Deleting all existing data from scraper.jobs_jobpost table...")
-                        delete_query = psycopg2.sql.SQL("TRUNCATE TABLE scraper.jobs_jobpost CASCADE")
+                        delete_query = sql.SQL("TRUNCATE TABLE scraper.jobs_jobpost CASCADE")
                         cur.execute(delete_query)
                         
                         # Step 3: Insert new data with proper column mapping
@@ -238,11 +239,11 @@ class BaseScraper:
                             for _, row in df.iterrows()
                         ]
                         
-                        insert_query = psycopg2.sql.SQL("""
+                        insert_query = sql.SQL("""
                             INSERT INTO scraper.jobs_jobpost (title, company, apply_link, source)
                             VALUES %s
                         """)
-                        psycopg2.extras.execute_values(cur, insert_query, values, page_size=batch_size)
+                        extras.execute_values(cur, insert_query, values, page_size=batch_size)
                         
                         # Commit transaction
                         conn.commit()
