@@ -1,6 +1,9 @@
 import logging
 import pandas as pd
 import asyncio
+import re
+import json
+from typing import Optional
 from base_scraper import BaseScraper, scraper_error_handler
 
 logger = logging.getLogger(__name__)
@@ -12,7 +15,10 @@ class RevolutScraper(BaseScraper):
     """
     
     BASE_URL = "https://www.revolut.com/_next/data"
-    BUILD_ID = "hqlIjzBKE4aut5_VDl56J"  # May need updates
+    
+    def __init__(self):
+        super().__init__()
+        self.build_id = None
     
     TEAM_SLUGS = [
         "business-development", "credit", "data", "engineering",
@@ -20,6 +26,98 @@ class RevolutScraper(BaseScraper):
         "operations", "people-recruitment", "product-design",
         "risk-compliance-audit", "sales", "support-fin-crime"
     ]
+    
+    async def get_build_id(self, session) -> str:
+        """
+        Dynamically extract the Next.js build ID from Revolut's website
+        """
+        if self.build_id:
+            return self.build_id
+        
+        logger.info("Extracting Revolut build ID dynamically")
+        
+        # Try multiple methods in order of reliability
+        methods = [
+            self._extract_from_ssg_manifest,
+            self._extract_from_build_manifest,
+            self._extract_from_next_data_urls,
+            self._extract_from_script_tag
+        ]
+        
+        for method in methods:
+            try:
+                build_id = await method(session)
+                if build_id and await self._test_build_id(session, build_id):
+                    self.build_id = build_id
+                    logger.info(f"Found valid build ID: {build_id} via {method.__name__}")
+                    return build_id
+            except Exception as e:
+                logger.warning(f"Method {method.__name__} failed: {e}")
+                continue
+        
+        raise Exception("Could not extract valid build ID using any method")
+    
+    async def _extract_from_ssg_manifest(self, session) -> Optional[str]:
+        """Extract build ID from _ssgManifest.js script tag (most reliable)"""
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session)
+        if not response:
+            return None
+        
+        pattern = r'/_next/static/([a-zA-Z0-9_-]+)/_ssgManifest\.js'
+        matches = re.findall(pattern, response)
+        return matches[0] if matches else None
+    
+    async def _extract_from_build_manifest(self, session) -> Optional[str]:
+        """Extract build ID from _buildManifest.js script tag (second most reliable)"""
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session)
+        if not response:
+            return None
+        
+        pattern = r'/_next/static/([a-zA-Z0-9_-]+)/_buildManifest\.js'
+        matches = re.findall(pattern, response)
+        return matches[0] if matches else None
+    
+    async def _extract_from_next_data_urls(self, session) -> Optional[str]:
+        """Extract build ID from _next/data URLs in page content"""
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session)
+        if not response:
+            return None
+        
+        pattern = r'/_next/data/([a-zA-Z0-9_-]+)/'
+        matches = re.findall(pattern, response)
+        
+        # Test each unique build ID found
+        for build_id in set(matches):
+            if await self._test_build_id(session, build_id):
+                return build_id
+        return None
+    
+    async def _extract_from_script_tag(self, session) -> Optional[str]:
+        """Extract from __NEXT_DATA__ script"""
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session)
+        if not response:
+            return None
+        
+        # Find and parse __NEXT_DATA__
+        pattern = r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>'
+        match = re.search(pattern, response, re.DOTALL)
+        
+        if match:
+            try:
+                next_data = json.loads(match.group(1))
+                return next_data.get('buildId')
+            except json.JSONDecodeError:
+                pass
+        return None
+    
+    async def _test_build_id(self, session, build_id: str) -> bool:
+        """Validate build ID with test API call"""
+        test_url = f"{self.BASE_URL}/{build_id}/en-GB/careers/team/engineering.json"
+        try:
+            response = await self.fetch_url_async(test_url, session, params={"slug": "engineering"}, timeout=5)
+            return response is not None
+        except:
+            return False
     
     @scraper_error_handler
     async def scrape_revolut(self, session):
@@ -29,6 +127,14 @@ class RevolutScraper(BaseScraper):
         logger.info("Started scraping Revolut careers")
         
         all_jobs = []
+        
+        # Get build ID dynamically first
+        try:
+            build_id = await self.get_build_id(session)
+            logger.info(f"Using build ID: {build_id}")
+        except Exception as e:
+            logger.error(f"Failed to get build ID: {e}")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
         
         for team_slug in self.TEAM_SLUGS:
             try:
@@ -50,7 +156,10 @@ class RevolutScraper(BaseScraper):
         """
         Scrape jobs for a specific team
         """
-        url = f"{self.BASE_URL}/{self.BUILD_ID}/en-GB/careers/team/{team_slug}.json"
+        if not self.build_id:
+            raise Exception("Build ID not set. Call get_build_id() first.")
+        
+        url = f"{self.BASE_URL}/{self.build_id}/en-GB/careers/team/{team_slug}.json"
         params = {"slug": team_slug}
         
         headers = {
