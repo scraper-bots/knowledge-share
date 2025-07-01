@@ -185,6 +185,7 @@ class BaseScraper:
             'Guavalab': '%guavalab%',
             'Fintech Farm': '%fintech-farm%',
             'Busy': '%busy%',
+            'Ziraat': '%ziraat%',
         }
         
         if not apply_link:
