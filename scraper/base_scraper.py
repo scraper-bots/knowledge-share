@@ -191,10 +191,19 @@ class BaseScraper:
         if not apply_link:
             return 'Unknown'
             
+        # Extract domain from URL to avoid false matches in URL paths
+        try:
+            from urllib.parse import urlparse
+            parsed_url = urlparse(apply_link)
+            domain = parsed_url.netloc.lower()
+        except Exception:
+            # Fallback to original method if URL parsing fails
+            domain = apply_link.lower()
+        
         for source, pattern in source_patterns.items():
             # Convert SQL-style pattern to Python regex pattern
             regex_pattern = pattern.replace('%', '.*')
-            if re.search(regex_pattern, apply_link, re.IGNORECASE):
+            if re.search(regex_pattern, domain, re.IGNORECASE):
                 return source
                 
         return 'Other'  # Default source if no pattern matches
