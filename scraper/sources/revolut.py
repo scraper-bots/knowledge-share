@@ -247,8 +247,17 @@ class RevolutScraper(BaseScraper):
         """Try common/recent build ID patterns as last resort"""
         logger.info("Trying common build ID patterns as fallback")
         
+        # Try to get current build IDs from a working Revolut page
+        # First let's try some recently found patterns or bypass the API entirely
+        logger.info("Attempting direct API access without build ID...")
+        
+        # Try bypassing the build ID requirement entirely
+        direct_api_test = await self._test_direct_api_access(session)
+        if direct_api_test:
+            return direct_api_test
+        
         # These are example patterns - in reality, you might want to maintain a list
-        # of recently seen build IDs or try to guess patterns
+        # of recently seen build IDs or try to guess patterns  
         common_patterns = [
             "hqlIjzBKE4aut5_VDl56J",  # Original hardcoded one
             "kFq2h3m8N9pL5rT6sW7x",  # Example pattern
@@ -262,6 +271,41 @@ class RevolutScraper(BaseScraper):
                 return build_id
         
         return None
+    
+    async def _test_direct_api_access(self, session) -> Optional[str]:
+        """Test if we can access Revolut careers without NextJS API"""
+        try:
+            # Try different API endpoints that might not need build ID
+            test_urls = [
+                "https://www.revolut.com/api/careers",
+                "https://www.revolut.com/careers-api",
+                "https://jobs.revolut.com/api/jobs",
+                "https://careers.revolut.com/api/positions"
+            ]
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*'
+            }
+            
+            for url in test_urls:
+                logger.info(f"Testing direct API: {url}")
+                response = await self.fetch_url_async(url, session, headers=headers, timeout=10)
+                if response:
+                    try:
+                        data = json.loads(response)
+                        if 'jobs' in data or 'positions' in data or 'careers' in data:
+                            logger.info(f"Found direct API endpoint: {url}")
+                            # Set a special marker to use direct scraping
+                            return "DIRECT_API"
+                    except json.JSONDecodeError:
+                        pass
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Direct API test failed: {e}")
+            return None
     
     async def _test_build_id(self, session, build_id: str) -> bool:
         """Validate build ID with test API call"""
