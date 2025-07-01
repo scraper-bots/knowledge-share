@@ -184,6 +184,7 @@ class BaseScraper:
             'Azercosmos': '%azercosmos%',
             'Guavalab': '%guavalab%',
             'Fintech Farm': '%fintech-farm%',
+            'Busy': '%busy%',
         }
         
         if not apply_link:

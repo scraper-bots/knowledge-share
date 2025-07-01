@@ -1,6 +1,7 @@
 import logging
 import pandas as pd
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 from base_scraper import BaseScraper, scraper_error_handler
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class ZiraatScraper(BaseScraper):
             
             # Find apply link
             link_tag = card.find('a', href=True)
-            apply_link = link_tag['href'] if link_tag else base_url
+            apply_link = urljoin(base_url, link_tag['href']) if link_tag else base_url
 
             jobs.append({
                 'company': 'Ziraat Bank',
