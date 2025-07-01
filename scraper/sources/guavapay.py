@@ -7,19 +7,19 @@ from base_scraper import BaseScraper, scraper_error_handler
 logger = logging.getLogger(__name__)
 
 
-class GuavalabScraper(BaseScraper):
+class GuavapayScraper(BaseScraper):
     """
-    Guavalab job scraper
+    Guavapay job scraper
     """
     
     @scraper_error_handler
-    async def scrape_guavalab(self, session):
+    async def scrape_guavapay(self, session):
         """
-        Scraper for Guavalab careers page
+        Scraper for Guavapay careers page
         """
-        logger.info("Started scraping Guavalab careers")
+        logger.info("Started scraping Guavapay careers")
         
-        base_url = "https://guavalab.az"
+        base_url = "https://guavapay.com"
         careers_url = f"{base_url}/az/careers"
         
         headers = {
@@ -36,7 +36,7 @@ class GuavalabScraper(BaseScraper):
             response = await self.fetch_url_async(careers_url, session, headers=headers)
             
             if not response:
-                logger.error("Failed to retrieve Guavalab careers page")
+                logger.error("Failed to retrieve Guavapay careers page")
                 return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
             
             soup = BeautifulSoup(response, 'html.parser')
@@ -49,10 +49,10 @@ class GuavalabScraper(BaseScraper):
                 job_cards = soup.select('div.rounded-2xl.bg-[#F0F4F3]')
                 
             if not job_cards:
-                logger.warning("No job cards found on Guavalab careers page")
+                logger.warning("No job cards found on Guavapay careers page")
                 return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
                 
-            logger.info(f"Found {len(job_cards)} job cards on Guavalab careers page")
+            logger.info(f"Found {len(job_cards)} job cards on Guavapay careers page")
             
             for job_card in job_cards:
                 try:
@@ -71,7 +71,7 @@ class GuavalabScraper(BaseScraper):
                     apply_link = urljoin(base_url, relative_link) if relative_link else careers_url
                     
                     job_listings.append({
-                        'company': 'Guavalab',
+                        'company': 'Guavapay',
                         'vacancy': job_title,
                         'apply_link': apply_link
                     })
@@ -80,9 +80,9 @@ class GuavalabScraper(BaseScraper):
                     logger.error(f"Error parsing job card: {str(e)}")
                     continue
             
-            logger.info(f"Successfully scraped {len(job_listings)} jobs from Guavalab")
+            logger.info(f"Successfully scraped {len(job_listings)} jobs from Guavapay")
             return pd.DataFrame(job_listings)
             
         except Exception as e:
-            logger.error(f"Error scraping Guavalab: {str(e)}")
+            logger.error(f"Error scraping Guavapay: {str(e)}")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])

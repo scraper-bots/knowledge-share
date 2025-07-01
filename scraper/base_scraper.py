@@ -182,7 +182,6 @@ class BaseScraper:
             'JobSearch': '%jobsearch%',
             'CanScreen': '%canscreen%',
             'Azercosmos': '%azercosmos%',
-            'Guavalab': '%guavalab%',
             'Fintech Farm': '%fintech-farm%',
             'Busy': '%busy%',
             'Ziraat': '%ziraat%',
