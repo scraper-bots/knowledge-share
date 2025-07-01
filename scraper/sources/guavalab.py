@@ -60,8 +60,11 @@ class GuavalabScraper(BaseScraper):
                     title_element = job_card.select_one('h3')
                     job_title = title_element.text.strip() if title_element else "Unknown Position"
                     
-                    # Extract application link
-                    link_element = job_card.select_one('a[href]')
+                    # Extract application link - look for the "See details" button specifically
+                    link_element = job_card.select_one('a[href*="/careers/"]')
+                    if not link_element:
+                        # Fallback to any link that contains "See details" text
+                        link_element = job_card.find('a', string=lambda text: text and 'See details' in text)
                     relative_link = link_element['href'] if link_element and 'href' in link_element.attrs else None
                     
                     # Construct the full application link
