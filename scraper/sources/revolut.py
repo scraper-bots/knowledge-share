@@ -41,7 +41,9 @@ class RevolutScraper(BaseScraper):
             self._extract_from_ssg_manifest,
             self._extract_from_build_manifest,
             self._extract_from_next_data_urls,
-            self._extract_from_script_tag
+            self._extract_from_script_tag,
+            self._extract_from_homepage,
+            self._try_common_build_ids
         ]
         
         for method in methods:
@@ -71,10 +73,17 @@ class RevolutScraper(BaseScraper):
             'Upgrade-Insecure-Requests': '1'
         }
         
-        response = await self.fetch_url_async("https://www.revolut.com/careers", session, headers=headers)
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session, headers=headers, timeout=20)
         if not response:
             logger.warning("Failed to fetch Revolut careers page for build ID extraction")
             return None
+        
+        logger.info(f"Revolut careers page response length: {len(response)}")
+        
+        # Check if we got the right page
+        if 'careers' not in response.lower() and 'revolut' not in response.lower():
+            logger.warning("Response doesn't look like Revolut careers page - might be blocked/redirected")
+            logger.debug(f"Response start: {response[:500]}")
         
         # Multiple patterns to try
         patterns = [
@@ -83,11 +92,16 @@ class RevolutScraper(BaseScraper):
             r'_next/static/([a-zA-Z0-9_-]+)/_ssgManifest\.js'
         ]
         
-        for pattern in patterns:
+        for i, pattern in enumerate(patterns):
             matches = re.findall(pattern, response)
+            logger.info(f"SSG Pattern {i+1}: {len(matches)} matches found")
             if matches:
-                logger.info(f"Found build ID from SSG manifest: {matches[0]}")
+                logger.info(f"Found build ID from SSG manifest pattern {i+1}: {matches[0]}")
                 return matches[0]
+        
+        # Look for any _next references for debugging
+        next_refs = re.findall(r'_next/[^"\s]+', response)
+        logger.info(f"Found {len(next_refs)} _next references: {next_refs[:5]}")
         
         return None
     
@@ -162,6 +176,8 @@ class RevolutScraper(BaseScraper):
             logger.warning("Failed to fetch Revolut careers page for script tag")
             return None
         
+        logger.info(f"Script tag response length: {len(response)}")
+        
         # Try multiple patterns for Next.js data
         patterns = [
             r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
@@ -172,6 +188,7 @@ class RevolutScraper(BaseScraper):
         for i, pattern in enumerate(patterns):
             if i == 0:  # First pattern returns JSON
                 match = re.search(pattern, response, re.DOTALL)
+                logger.info(f"Script pattern {i+1}: {'Match found' if match else 'No match'}")
                 if match:
                     try:
                         next_data = json.loads(match.group(1))
@@ -183,10 +200,66 @@ class RevolutScraper(BaseScraper):
                         logger.warning(f"Failed to parse __NEXT_DATA__ JSON: {e}")
             else:  # Other patterns return build ID directly
                 matches = re.findall(pattern, response)
+                logger.info(f"Script pattern {i+1}: {len(matches)} matches found")
                 if matches:
                     build_id = matches[0]
                     logger.info(f"Found build ID from pattern {i+1}: {build_id}")
                     return build_id
+        
+        # Debug: look for any script tags
+        script_tags = re.findall(r'<script[^>]*>', response)
+        logger.info(f"Found {len(script_tags)} script tags total")
+        
+        return None
+    
+    async def _extract_from_homepage(self, session) -> Optional[str]:
+        \"\"\"Extract build ID from Revolut homepage instead of careers page\"\"\"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        }
+        
+        response = await self.fetch_url_async(\"https://www.revolut.com\", session, headers=headers, timeout=20)
+        if not response:
+            logger.warning(\"Failed to fetch Revolut homepage\")
+            return None
+        
+        logger.info(f\"Homepage response length: {len(response)}\")
+        
+        # Try all patterns on homepage
+        patterns = [
+            r'/_next/static/([a-zA-Z0-9_-]+)/_ssgManifest\\.js',
+            r'/_next/static/([a-zA-Z0-9_-]+)/_buildManifest\\.js',
+            r'/_next/data/([a-zA-Z0-9_-]+)/',
+            r'\"buildId\":\"([a-zA-Z0-9_-]+)\"'
+        ]
+        
+        for i, pattern in enumerate(patterns):
+            matches = re.findall(pattern, response)
+            logger.info(f\"Homepage pattern {i+1}: {len(matches)} matches\")
+            if matches:
+                logger.info(f\"Found build ID from homepage pattern {i+1}: {matches[0]}\")
+                return matches[0]
+        
+        return None
+    
+    async def _try_common_build_ids(self, session) -> Optional[str]:
+        \"\"\"Try common/recent build ID patterns as last resort\"\"\"
+        logger.info(\"Trying common build ID patterns as fallback\")
+        
+        # These are example patterns - in reality, you might want to maintain a list
+        # of recently seen build IDs or try to guess patterns
+        common_patterns = [
+            \"hqlIjzBKE4aut5_VDl56J\",  # Original hardcoded one
+            \"kFq2h3m8N9pL5rT6sW7x\",  # Example pattern
+            \"aB3dE5fG7hI9jK1mN3oP\",  # Example pattern
+        ]
+        
+        for build_id in common_patterns:
+            logger.info(f\"Testing common build ID: {build_id}\")
+            if await self._test_build_id(session, build_id):
+                logger.info(f\"Success with common build ID: {build_id}\")
+                return build_id
         
         return None
     
