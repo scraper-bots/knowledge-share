@@ -11,14 +11,10 @@ logger = logging.getLogger(__name__)
 
 class RevolutScraper(BaseScraper):
     """
-    Revolut careers API scraper
+    Revolut careers API scraper with dynamic build ID extraction
     """
     
     BASE_URL = "https://www.revolut.com/_next/data"
-    
-    def __init__(self):
-        super().__init__()
-        self.build_id = None
     
     TEAM_SLUGS = [
         "business-development", "credit", "data", "engineering",
@@ -26,6 +22,10 @@ class RevolutScraper(BaseScraper):
         "operations", "people-recruitment", "product-design",
         "risk-compliance-audit", "sales", "support-fin-crime"
     ]
+    
+    def __init__(self):
+        super().__init__()
+        self.build_id = None
     
     async def get_build_id(self, session) -> str:
         """
@@ -51,6 +51,8 @@ class RevolutScraper(BaseScraper):
                     self.build_id = build_id
                     logger.info(f"Found valid build ID: {build_id} via {method.__name__}")
                     return build_id
+                elif build_id:
+                    logger.warning(f"Build ID {build_id} from {method.__name__} failed validation")
             except Exception as e:
                 logger.warning(f"Method {method.__name__} failed: {e}")
                 continue
@@ -59,64 +61,154 @@ class RevolutScraper(BaseScraper):
     
     async def _extract_from_ssg_manifest(self, session) -> Optional[str]:
         """Extract build ID from _ssgManifest.js script tag (most reliable)"""
-        response = await self.fetch_url_async("https://www.revolut.com/careers", session)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+        
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session, headers=headers)
         if not response:
+            logger.warning("Failed to fetch Revolut careers page for build ID extraction")
             return None
         
-        pattern = r'/_next/static/([a-zA-Z0-9_-]+)/_ssgManifest\.js'
-        matches = re.findall(pattern, response)
-        return matches[0] if matches else None
+        # Multiple patterns to try
+        patterns = [
+            r'/_next/static/([a-zA-Z0-9_-]+)/_ssgManifest\.js',
+            r'/static/([a-zA-Z0-9_-]+)/_ssgManifest\.js',
+            r'_next/static/([a-zA-Z0-9_-]+)/_ssgManifest\.js'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, response)
+            if matches:
+                logger.info(f"Found build ID from SSG manifest: {matches[0]}")
+                return matches[0]
+        
+        return None
     
     async def _extract_from_build_manifest(self, session) -> Optional[str]:
         """Extract build ID from _buildManifest.js script tag (second most reliable)"""
-        response = await self.fetch_url_async("https://www.revolut.com/careers", session)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9'
+        }
+        
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session, headers=headers)
         if not response:
+            logger.warning("Failed to fetch Revolut careers page for build manifest")
             return None
         
-        pattern = r'/_next/static/([a-zA-Z0-9_-]+)/_buildManifest\.js'
-        matches = re.findall(pattern, response)
-        return matches[0] if matches else None
+        # Multiple patterns to try
+        patterns = [
+            r'/_next/static/([a-zA-Z0-9_-]+)/_buildManifest\.js',
+            r'/static/([a-zA-Z0-9_-]+)/_buildManifest\.js',
+            r'_next/static/([a-zA-Z0-9_-]+)/_buildManifest\.js'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, response)
+            if matches:
+                logger.info(f"Found build ID from build manifest: {matches[0]}")
+                return matches[0]
+        
+        return None
     
     async def _extract_from_next_data_urls(self, session) -> Optional[str]:
         """Extract build ID from _next/data URLs in page content"""
-        response = await self.fetch_url_async("https://www.revolut.com/careers", session)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        }
+        
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session, headers=headers)
         if not response:
+            logger.warning("Failed to fetch Revolut careers page for data URLs")
             return None
         
-        pattern = r'/_next/data/([a-zA-Z0-9_-]+)/'
-        matches = re.findall(pattern, response)
+        patterns = [
+            r'/_next/data/([a-zA-Z0-9_-]+)/',
+            r'/data/([a-zA-Z0-9_-]+)/',
+            r'_next/data/([a-zA-Z0-9_-]+)/'
+        ]
+        
+        all_matches = []
+        for pattern in patterns:
+            matches = re.findall(pattern, response)
+            all_matches.extend(matches)
         
         # Test each unique build ID found
-        for build_id in set(matches):
+        for build_id in set(all_matches):
+            logger.info(f"Testing build ID from data URLs: {build_id}")
             if await self._test_build_id(session, build_id):
+                logger.info(f"Found valid build ID from data URLs: {build_id}")
                 return build_id
         return None
     
     async def _extract_from_script_tag(self, session) -> Optional[str]:
         """Extract from __NEXT_DATA__ script"""
-        response = await self.fetch_url_async("https://www.revolut.com/careers", session)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        }
+        
+        response = await self.fetch_url_async("https://www.revolut.com/careers", session, headers=headers)
         if not response:
+            logger.warning("Failed to fetch Revolut careers page for script tag")
             return None
         
-        # Find and parse __NEXT_DATA__
-        pattern = r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>'
-        match = re.search(pattern, response, re.DOTALL)
+        # Try multiple patterns for Next.js data
+        patterns = [
+            r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
+            r'"buildId":"([a-zA-Z0-9_-]+)"',
+            r'buildId\s*:\s*"([a-zA-Z0-9_-]+)"'
+        ]
         
-        if match:
-            try:
-                next_data = json.loads(match.group(1))
-                return next_data.get('buildId')
-            except json.JSONDecodeError:
-                pass
+        for i, pattern in enumerate(patterns):
+            if i == 0:  # First pattern returns JSON
+                match = re.search(pattern, response, re.DOTALL)
+                if match:
+                    try:
+                        next_data = json.loads(match.group(1))
+                        build_id = next_data.get('buildId')
+                        if build_id:
+                            logger.info(f"Found build ID from __NEXT_DATA__: {build_id}")
+                            return build_id
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse __NEXT_DATA__ JSON: {e}")
+            else:  # Other patterns return build ID directly
+                matches = re.findall(pattern, response)
+                if matches:
+                    build_id = matches[0]
+                    logger.info(f"Found build ID from pattern {i+1}: {build_id}")
+                    return build_id
+        
         return None
     
     async def _test_build_id(self, session, build_id: str) -> bool:
         """Validate build ID with test API call"""
         test_url = f"{self.BASE_URL}/{build_id}/en-GB/careers/team/engineering.json"
         try:
-            response = await self.fetch_url_async(test_url, session, params={"slug": "engineering"}, timeout=5)
-            return response is not None
-        except:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*'
+            }
+            response = await self.fetch_url_async(test_url, session, headers=headers, params={"slug": "engineering"}, timeout=10)
+            if response:
+                # Try to parse as JSON to ensure it's valid
+                try:
+                    data = json.loads(response)
+                    return "pageProps" in data  # Valid Revolut careers API response
+                except json.JSONDecodeError:
+                    return False
+            return False
+        except Exception as e:
+            logger.warning(f"Build ID test failed for {build_id}: {e}")
             return False
     
     @scraper_error_handler
@@ -163,7 +255,7 @@ class RevolutScraper(BaseScraper):
         params = {"slug": team_slug}
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': f'https://www.revolut.com/careers/team/{team_slug}',
@@ -176,7 +268,6 @@ class RevolutScraper(BaseScraper):
             return []
         
         try:
-            import json
             data = json.loads(response)
             return self._extract_jobs(data, team_slug)
         except json.JSONDecodeError as e:
