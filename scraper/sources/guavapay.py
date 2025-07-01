@@ -19,8 +19,8 @@ class GuavapayScraper(BaseScraper):
         """
         logger.info("Started scraping Guavapay careers")
         
-        base_url = "https://guavapay.com"
-        careers_url = f"{base_url}/az/careers"
+        base_url = "https://guavalab.az"
+        careers_url = f"{base_url}/en/careers"
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
