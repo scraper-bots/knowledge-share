@@ -12,7 +12,7 @@ SELECT
     COUNT(DISTINCT source) as "Active Sources",
     COUNT(DISTINCT DATE(created_at)) as "Scraping Days",
     ROUND(
-        (COUNT(DISTINCT source)::decimal / 55) * 100, 1
+        (COUNT(DISTINCT source)::decimal / 56) * 100, 1
     ) as "Source Coverage %"
 FROM scraper.jobs_jobpost;
 
