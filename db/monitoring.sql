@@ -15,7 +15,7 @@ website_patterns AS (
     ('ARTI', '%arti.edu%'),
     ('ASCO', '%asco%'),
     ('Azercell', '%azercell%'),
-    ('Azerconnect', '%oraclecloud%'),  -- UPDATED: was %azerconnect.az%
+    ('Azerconnect', '%oraclecloud%'),
     ('Azercosmos', '%azercosmos%'),
     ('AzerGold', '%azergold%'),
     ('Baku Electronics', '%bakuelectronics.az%'),
@@ -37,8 +37,8 @@ website_patterns AS (
     ('HCB', '%hcb.az%'),
     ('HelloJob', '%hellojob%'),
     ('HRC Baku', '%hrcbaku%'),
-    ('HRIN', '%hrin.az%'),  -- UPDATED: was %hrin.co%
-    ('Is-elanlari', '%is-elanlari%'),  -- Added missing source
+    ('HRIN', '%hrin.az%'),
+    ('Is-elanlari', '%is-elanlari%'),
     ('Ishelanlari', '%ishelanlari%'),
     ('Isqur', '%isqur%'),
     ('Isveren', '%isveren%'),
