@@ -41,12 +41,16 @@ class GuavapayScraper(BaseScraper):
             
             soup = BeautifulSoup(response, 'html.parser')
             
-            # Find all job cards on the page
-            job_cards = soup.select('div.flex.flex-col.gap-y-6.rounded-2xl.bg-\\[\\#F0F4F3\\].p-8')
+            # Find all job cards on the page - using simpler selectors to avoid CSS parsing issues
+            job_cards = soup.select('div.rounded-2xl')
+            
+            # Filter for job cards that have the specific background color class
+            if job_cards:
+                job_cards = [card for card in job_cards if 'bg-[#F0F4F3]' in str(card.get('class', []))]
             
             if not job_cards:
-                # Try alternative selector if the first one doesn't match
-                job_cards = soup.select('div.rounded-2xl.bg-[#F0F4F3]')
+                # Try even broader selector
+                job_cards = soup.find_all('div', class_=lambda x: x and 'rounded-2xl' in ' '.join(x))
                 
             if not job_cards:
                 logger.warning("No job cards found on Guavapay careers page")

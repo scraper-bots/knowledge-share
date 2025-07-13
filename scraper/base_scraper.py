@@ -73,7 +73,7 @@ class BaseScraper:
             cursor = conn.cursor()
             
             insert_query = """
-                INSERT INTO scraper_errors (scraper_name, error_message, url, retry_count, timestamp)
+                INSERT INTO scraper.scraper_errors (scraper_name, error_message, url, retry_count, timestamp)
                 VALUES (%s, %s, %s, %s, NOW())
             """
             cursor.execute(insert_query, (scraper_name, error_message, url, retry_count))

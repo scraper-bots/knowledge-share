@@ -13,6 +13,16 @@ class JobboxAzScraper(BaseScraper):
     
     @scraper_error_handler
     async def parse_jobbox_az(self, session):
+        # Check if domain is reachable first
+        try:
+            test_response = await self.fetch_url_async('https://jobbox.az', session, max_retries=1)
+            if not test_response:
+                logger.warning("jobbox.az appears to be unreachable, skipping scraper")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+        except Exception as e:
+            logger.warning(f"jobbox.az domain test failed: {str(e)}, skipping scraper")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            
         start_page = 1
         end_page = 5
         logger.info(f"Scraping started for jobbox.az from page {start_page} to page {end_page}")

@@ -63,7 +63,8 @@ website_patterns AS (
     ('UN Jobs', '%un.org%'),
     ('Vakansiya.az', '%vakansiya.az%'),
     ('Vakansiya.biz', '%vakansiya.biz%'),
-    ('Ziraat', '%ziraat%')
+    ('Ziraat', '%ziraat%'),
+    ('Andersen', '%andersenlab%')
   ) AS t(website_name, url_pattern)
 ),
 jobs_with_row_numbers AS (
@@ -120,10 +121,10 @@ SELECT
         ('Kapital Bank'),('Konsis'),('MDM'),('Offer.az'),('Oil Fund'),
         ('Orion'),('Position.az'),('ProJobs'),('Regulator'),('Revolut'),
         ('Smartjob'),('Staffy'),('TABIB'),('The Muse'),('UN Jobs'),
-        ('Vakansiya.az'),('Vakansiya.biz'),('Ziraat')
+        ('Vakansiya.az'),('Vakansiya.biz'),('Ziraat'),('Andersen')
     ) AS expected_sources(name)) as "Expected Sources",
     ROUND(
-        (COUNT(DISTINCT source)::decimal / 56) * 100, 1
+        (COUNT(DISTINCT source)::decimal / 57) * 100, 1
     ) as "Source Coverage %"
 FROM scraper.jobs_jobpost 
 WHERE created_at = (SELECT MAX(created_at) FROM scraper.jobs_jobpost);

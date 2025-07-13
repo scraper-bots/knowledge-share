@@ -16,6 +16,16 @@ class EkaryeraScraper(BaseScraper):
         """
         Scrape job listings from ekaryera.az across multiple pages
         """
+        # Check if domain is reachable first
+        try:
+            test_response = await self.fetch_url_async('https://www.ekaryera.az', session, max_retries=1, verify_ssl=False)
+            if not test_response:
+                logger.warning("ekaryera.az appears to be unreachable, skipping scraper")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+        except Exception as e:
+            logger.warning(f"ekaryera.az domain test failed: {str(e)}, skipping scraper")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            
         page_limit = 5
         base_url = "https://www.ekaryera.az/vakansiyalar?page="
         headers = {
