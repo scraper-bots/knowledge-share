@@ -187,6 +187,7 @@ class BaseScraper:
             'Ziraat': '%ziraat%',
             'Guavapay': '%guavalab%',
             'Revolut': '%revolut%',
+            'Andersen': '%andersenlab%',
         }
         
         if not apply_link:
