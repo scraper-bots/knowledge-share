@@ -15,40 +15,66 @@ class AdaScraper(BaseScraper):
     async def parse_ada(self, session):
         logger.info("Started scraping ADA University")
 
-        url = "https://ada.edu.az/jobs"
-        response = await self.fetch_url_async(url, session, verify_ssl=False)  # SSL disabled for this connection
+        # Try both English and main career pages
+        urls = ["https://ada.edu.az/en/jobs", "https://ada.edu.az/jobs"]
+        jobs = []
+        
+        for url in urls:
+            response = await self.fetch_url_async(url, session, verify_ssl=False)
+            
+            if response:
+                soup = BeautifulSoup(response, 'html.parser')
 
-        if response:
-            soup = BeautifulSoup(response, 'html.parser')
+                # Look for various job listing structures
+                # Try original table structure
+                table = soup.find('table', class_='table-job')
+                if table and table.find('tbody'):
+                    for row in table.find('tbody').find_all('tr'):
+                        title_tag = row.find('td', class_='name').find('a') if row.find('td', class_='name') else None
+                        view_link_tag = row.find('td', class_='view').find('a') if row.find('td', class_='view') else None
 
-            # Find the table containing the job listings
-            table = soup.find('table', class_='table-job')
-            jobs = []
+                        # Safely get the title and apply link
+                        title = title_tag.text.strip() if title_tag else "N/A"
+                        apply_link = view_link_tag['href'] if view_link_tag else "N/A"
 
-            if table:
-                # Loop through each row in the table body
-                for row in table.find('tbody').find_all('tr'):
-                    title_tag = row.find('td', class_='name').find('a')
-                    view_link_tag = row.find('td', class_='view').find('a')
+                        if title != "N/A":
+                            job = {
+                                'company': 'ADA University',
+                                'vacancy': title,
+                                'apply_link': f"https://ada.edu.az{apply_link}" if apply_link.startswith('/') else apply_link
+                            }
+                            jobs.append(job)
+                    
+                    if jobs:
+                        break  # Found jobs, no need to try other URLs
+                
+                # Try alternative structures if no table found
+                elif not jobs:
+                    # Look for job cards or other structures
+                    job_cards = soup.find_all(['div', 'li'], class_=lambda x: x and ('job' in str(x).lower() or 'vacancy' in str(x).lower() or 'career' in str(x).lower()))
+                    
+                    for card in job_cards:
+                        title_elem = card.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a'])
+                        if title_elem and title_elem.get_text(strip=True):
+                            title = title_elem.get_text(strip=True)
+                            link = card.find('a')
+                            apply_link = link['href'] if link and 'href' in link.attrs else url
+                            
+                            job = {
+                                'company': 'ADA University',
+                                'vacancy': title,
+                                'apply_link': f"https://ada.edu.az{apply_link}" if apply_link.startswith('/') else apply_link
+                            }
+                            jobs.append(job)
+                    
+                    if jobs:
+                        break  # Found jobs, no need to try other URLs
 
-                    # Safely get the title and apply link
-                    title = title_tag.text.strip() if title_tag else "N/A"
-                    apply_link = view_link_tag['href'] if view_link_tag else "N/A"
-
-                    job = {
-                        'company': 'ADA University',
-                        'vacancy': title,
-                        'apply_link': apply_link
-                    }
-                    jobs.append(job)
-
-                df = pd.DataFrame(jobs)
-                logger.info("Scraping completed for ADA University")
-                logger.info(f"Scraped jobs: {len(jobs)}")
-                return df if not df.empty else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
-            else:
-                logger.warning("No job listings found on the ADA University page.")
-                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+        # Return results
+        if jobs:
+            df = pd.DataFrame(jobs)
+            logger.info(f"Scraping completed for ADA University - found {len(jobs)} jobs")
+            return df
         else:
-            logger.error("Failed to fetch the page.")
+            logger.warning("No job listings found on ADA University pages")
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
