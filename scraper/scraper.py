@@ -1,15 +1,29 @@
 import asyncio
 import pandas as pd
 import logging
+import sys
+import time
 from datetime import datetime
 from scraper_manager import ScraperManager
 from base_scraper import BaseScraper
 
-# Configure logging
-logging.basicConfig(
-    level=logging.ERROR,
-    format='%(levelname)s:%(name)s:%(message)s'
-)
+# Configure logging - more detailed for GitHub Actions
+import os
+is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+
+if is_github_actions:
+    # More verbose logging for GitHub Actions
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        datefmt='%H:%M:%S'
+    )
+else:
+    # Standard logging for local development
+    logging.basicConfig(
+        level=logging.ERROR,
+        format='%(levelname)s:%(name)s:%(message)s'
+    )
 logger = logging.getLogger(__name__)
 
 
@@ -65,22 +79,64 @@ class JobScraper(BaseScraper):
 
 async def main():
     """Main execution function"""
+    start_time = time.time()
+    
+    if is_github_actions:
+        print("::group::\ud83d\ude80 Job Scraper Initialization")
+        print(f"Environment: GitHub Actions")
+        print(f"Python version: {sys.version}")
+        print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("::endgroup::")
+    
     job_scraper = JobScraper()
     
     # Print loaded scrapers info
     scraper_info = job_scraper.get_scraper_info()
-    logger.info(f"Loaded {len(scraper_info)} scrapers: {list(scraper_info.keys())}")
+    available_scrapers = list(scraper_info.keys())
+    
+    logger.info(f"\ud83d\udcc8 Loaded {len(scraper_info)} scrapers")
+    
+    if is_github_actions:
+        print(f"::group::\ud83d\udccb Available Scrapers ({len(available_scrapers)})")
+        for i, scraper in enumerate(sorted(available_scrapers), 1):
+            print(f"{i:2d}. {scraper}")
+        print("::endgroup::")
+    else:
+        logger.info(f"Available scrapers: {available_scrapers}")
     
     # Run the scrapers
+    logger.info("\ud83d\ude80 Starting scraper execution...")
     await job_scraper.get_data_async()
     
     # Save to database if data was collected
     if job_scraper.data is not None and not job_scraper.data.empty:
-        logger.info(f"Saving {len(job_scraper.data)} jobs to database...")
-        job_scraper.save_to_db(job_scraper.data)
-        logger.info("Data successfully saved to database")
+        job_count = len(job_scraper.data)
+        logger.info(f"\ud83d\udcbe Saving {job_count} jobs to database...")
+        
+        if is_github_actions:
+            print(f"::notice title=Database Save::Saving {job_count} jobs to database")
+        
+        try:
+            job_scraper.save_to_db(job_scraper.data)
+            total_time = time.time() - start_time
+            
+            success_msg = f"Data successfully saved to database in {total_time:.1f}s"
+            logger.info(f"\u2705 {success_msg}")
+            
+            if is_github_actions:
+                print(f"::notice title=Success::{success_msg}")
+                
+        except Exception as e:
+            error_msg = f"Failed to save to database: {str(e)}"
+            logger.error(f"\u274c {error_msg}")
+            if is_github_actions:
+                print(f"::error title=Database Error::{error_msg}")
+            raise
     else:
-        logger.warning("No data to save to database")
+        warning_msg = "No data to save to database - all scrapers failed or returned empty results"
+        logger.warning(f"\u26a0\ufe0f {warning_msg}")
+        if is_github_actions:
+            print(f"::warning title=No Data::{warning_msg}")
 
 
 if __name__ == "__main__":
