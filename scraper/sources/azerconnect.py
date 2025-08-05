@@ -3,6 +3,7 @@ import random
 import logging
 import pandas as pd
 import aiohttp
+import os
 from bs4 import BeautifulSoup
 from base_scraper import BaseScraper, scraper_error_handler
 
@@ -45,8 +46,10 @@ class AzerconnectScraper(BaseScraper):
             'Upgrade-Insecure-Requests': '1'
         }
 
-        max_retries = 3
-        base_delay = 5
+        # Adjust retries for CI environment
+        is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+        max_retries = 2 if is_github_actions else 3
+        base_delay = 8 if is_github_actions else 5
 
         for attempt in range(max_retries):
             try:

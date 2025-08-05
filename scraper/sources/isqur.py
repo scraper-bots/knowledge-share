@@ -2,6 +2,7 @@ import logging
 import pandas as pd
 import asyncio
 import random
+import os
 from bs4 import BeautifulSoup
 from base_scraper import BaseScraper, scraper_error_handler
 
@@ -15,6 +16,12 @@ class IsqurScraper(BaseScraper):
     
     @scraper_error_handler
     async def parse_isqur(self, session):
+        # Check if in GitHub Actions - skip this problematic scraper in CI
+        is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+        if is_github_actions:
+            logger.info("Skipping isqur.com in GitHub Actions due to blocking")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
+            
         start_page = 1
         end_page = 5
         logger.info("Started scraping isqur.com")

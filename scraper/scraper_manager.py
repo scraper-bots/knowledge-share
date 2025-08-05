@@ -2,6 +2,7 @@ import asyncio
 import aiohttp
 import pandas as pd
 import logging
+import random
 from typing import List, Dict
 import importlib
 import os
@@ -87,14 +88,42 @@ class ScraperManager:
     
     async def run_all_scrapers(self, max_concurrent: int = 10) -> pd.DataFrame:
         """Run all scrapers concurrently and return combined results"""
+        # Detect GitHub Actions environment and adjust concurrency
+        is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+        if is_github_actions:
+            max_concurrent = min(max_concurrent, 3)  # Reduce concurrency in CI
+            logger.info(f"GitHub Actions detected - reducing concurrency to {max_concurrent}")
+        
         logger.info(f"Starting {len(self.scrapers)} scrapers with max_concurrent={max_concurrent}")
         
-        async with aiohttp.ClientSession() as session:
+        # Enhanced connector settings for CI environments
+        connector_kwargs = {
+            'limit': 50,
+            'limit_per_host': 10,
+            'ttl_dns_cache': 300,
+            'use_dns_cache': True,
+        }
+        
+        if is_github_actions:
+            connector_kwargs.update({
+                'limit': 20,
+                'limit_per_host': 5,
+                'keepalive_timeout': 30,
+                'enable_cleanup_closed': True
+            })
+        
+        connector = aiohttp.TCPConnector(**connector_kwargs)
+        timeout = aiohttp.ClientTimeout(total=300 if is_github_actions else 180)
+        
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             # Create semaphore to limit concurrent scrapers
             semaphore = asyncio.Semaphore(max_concurrent)
             
             async def run_with_semaphore(scraper_name):
                 async with semaphore:
+                    if is_github_actions:
+                        # Add delay between scraper starts in CI
+                        await asyncio.sleep(random.uniform(0.5, 2))
                     return await self.run_single_scraper(scraper_name, session)
             
             # Run all scrapers concurrently

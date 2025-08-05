@@ -84,16 +84,35 @@ class BaseScraper:
             logger.error(f"Failed to log scraper error: {str(e)}")
 
     async def fetch_url_async(self, url: str, session: aiohttp.ClientSession, params=None, headers=None, verify_ssl=True, max_retries: int = 3) -> str:
-        """Asynchronously fetch URL content with retry logic"""
+        """Asynchronously fetch URL content with enhanced retry logic for CI environments"""
+        
+        # Detect if running in GitHub Actions
+        is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+        
+        # Enhanced headers for CI environments
         default_headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
         }
         
         request_headers = {**default_headers, **(headers or {})}
         
+        # Enhanced retry logic for CI environments
+        if is_github_actions:
+            max_retries = min(max_retries, 2)  # Reduce retries in CI to avoid timeouts
+        
         for attempt in range(max_retries):
             try:
-                async with session.get(url, params=params, headers=request_headers, ssl=verify_ssl, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                # Increased timeout for CI environments
+                timeout_duration = 45 if is_github_actions else 30
+                timeout = aiohttp.ClientTimeout(total=timeout_duration, connect=15)
+                
+                async with session.get(url, params=params, headers=request_headers, ssl=verify_ssl, timeout=timeout) as response:
                     if response.status == 200:
                         # Handle different content types
                         content_type = response.headers.get('Content-Type', '').lower()
@@ -110,16 +129,27 @@ class BaseScraper:
                                 detected = chardet.detect(content)
                                 encoding = detected.get('encoding', 'utf-8')
                                 return content.decode(encoding, errors='ignore')
-                    elif response.status == 429:  # Too Many Requests
-                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    elif response.status in [403, 429, 503]:  # Common CI blocking statuses
+                        if is_github_actions:
+                            # Longer backoff in CI environments
+                            wait_time = min((3 ** attempt) + random.uniform(1, 3), 15)
+                        else:
+                            wait_time = (2 ** attempt) + random.uniform(0, 1)
                         await asyncio.sleep(wait_time)
                         continue
                     else:
                         logger.warning(f"HTTP {response.status} for {url}")
                         return ""
+            except (asyncio.TimeoutError, aiohttp.ClientTimeout) as e:
+                if attempt < max_retries - 1:
+                    # Extended backoff for timeout errors in CI
+                    wait_time = (3 ** attempt) + random.uniform(2, 5) if is_github_actions else (2 ** attempt) + random.uniform(0, 1)
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"Timeout fetching {url} after {max_retries} attempts: {str(e)}")
             except Exception as e:
                 if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    wait_time = (2 ** attempt) + random.uniform(1, 2) if is_github_actions else (2 ** attempt) + random.uniform(0, 1)
                     await asyncio.sleep(wait_time)
                 else:
                     logger.error(f"Failed to fetch {url} after {max_retries} attempts: {str(e)}")
