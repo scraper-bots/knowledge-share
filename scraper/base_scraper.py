@@ -33,9 +33,9 @@ def scraper_error_handler(func: Callable) -> Callable:
     async def wrapper(self, *args, **kwargs):
         try:
             return await func(self, *args, **kwargs)
-        except Exception as e:
+        except BaseException as e:
+            # Use BaseException to catch all possible exceptions
             logger.error(f"Error in {func.__name__}: {str(e)}")
-            # Skip database logging for now to avoid schema issues
             # Return empty DataFrame to maintain consistency
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
     return wrapper
