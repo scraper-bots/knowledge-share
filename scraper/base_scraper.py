@@ -35,8 +35,7 @@ def scraper_error_handler(func: Callable) -> Callable:
             return await func(self, *args, **kwargs)
         except Exception as e:
             logger.error(f"Error in {func.__name__}: {str(e)}")
-            # Log error to database
-            await self.log_scraper_error(func.__name__, str(e))
+            # Skip database logging for now to avoid schema issues
             # Return empty DataFrame to maintain consistency
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
     return wrapper
@@ -72,16 +71,27 @@ class BaseScraper:
             conn = psycopg2.connect(**self.db_params)
             cursor = conn.cursor()
             
-            insert_query = """
-                INSERT INTO scraper.scraper_errors (scraper_name, error_message, url, retry_count, timestamp)
-                VALUES (%s, %s, %s, %s, NOW())
-            """
-            cursor.execute(insert_query, (scraper_name, error_message, url, retry_count))
+            # Try the new schema first, fallback to simple logging
+            try:
+                insert_query = """
+                    INSERT INTO scraper.scraper_errors (scraper_name, error_message, url, retry_count, timestamp)
+                    VALUES (%s, %s, %s, %s, NOW())
+                """
+                cursor.execute(insert_query, (scraper_name, error_message, url, retry_count))
+            except psycopg2.Error:
+                # Fallback to simpler error logging
+                insert_query = """
+                    INSERT INTO scraper.scraper_errors (error_message, timestamp)
+                    VALUES (%s, NOW())
+                """
+                cursor.execute(insert_query, (f"{scraper_name}: {error_message}",))
+            
             conn.commit()
             cursor.close()
             conn.close()
         except Exception as e:
-            logger.error(f"Failed to log scraper error: {str(e)}")
+            # Just log to console if database logging fails
+            logger.error(f"Scraper error ({scraper_name}): {error_message}")
 
     async def fetch_url_async(self, url: str, session: aiohttp.ClientSession, params=None, headers=None, verify_ssl=True, max_retries: int = 3) -> str:
         """Asynchronously fetch URL content with enhanced retry logic for CI environments"""
