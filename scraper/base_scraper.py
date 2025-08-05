@@ -228,6 +228,7 @@ class BaseScraper:
             'Guavapay': '%guavalab%',
             'Revolut': '%revolut%',
             'Andersen': '%andersenlab%',
+            'PashaPay': '%pashapay.huntflow%',
         }
         
         if not apply_link:
