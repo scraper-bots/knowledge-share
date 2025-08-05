@@ -82,7 +82,7 @@ async def main():
     start_time = time.time()
     
     if is_github_actions:
-        print("::group::\ud83d\ude80 Job Scraper Initialization")
+        print("::group::🚀 Job Scraper Initialization")
         print(f"Environment: GitHub Actions")
         print(f"Python version: {sys.version}")
         print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -94,10 +94,10 @@ async def main():
     scraper_info = job_scraper.get_scraper_info()
     available_scrapers = list(scraper_info.keys())
     
-    logger.info(f"\ud83d\udcc8 Loaded {len(scraper_info)} scrapers")
+    logger.info(f"📊 Loaded {len(scraper_info)} scrapers")
     
     if is_github_actions:
-        print(f"::group::\ud83d\udccb Available Scrapers ({len(available_scrapers)})")
+        print(f"::group::📋 Available Scrapers ({len(available_scrapers)})")
         for i, scraper in enumerate(sorted(available_scrapers), 1):
             print(f"{i:2d}. {scraper}")
         print("::endgroup::")
@@ -105,13 +105,13 @@ async def main():
         logger.info(f"Available scrapers: {available_scrapers}")
     
     # Run the scrapers
-    logger.info("\ud83d\ude80 Starting scraper execution...")
+    logger.info("🚀 Starting scraper execution...")
     await job_scraper.get_data_async()
     
     # Save to database if data was collected
     if job_scraper.data is not None and not job_scraper.data.empty:
         job_count = len(job_scraper.data)
-        logger.info(f"\ud83d\udcbe Saving {job_count} jobs to database...")
+        logger.info(f"💾 Saving {job_count} jobs to database...")
         
         if is_github_actions:
             print(f"::notice title=Database Save::Saving {job_count} jobs to database")
@@ -121,20 +121,20 @@ async def main():
             total_time = time.time() - start_time
             
             success_msg = f"Data successfully saved to database in {total_time:.1f}s"
-            logger.info(f"\u2705 {success_msg}")
+            logger.info(f"✅ {success_msg}")
             
             if is_github_actions:
                 print(f"::notice title=Success::{success_msg}")
                 
         except Exception as e:
             error_msg = f"Failed to save to database: {str(e)}"
-            logger.error(f"\u274c {error_msg}")
+            logger.error(f"❌ {error_msg}")
             if is_github_actions:
                 print(f"::error title=Database Error::{error_msg}")
             raise
     else:
         warning_msg = "No data to save to database - all scrapers failed or returned empty results"
-        logger.warning(f"\u26a0\ufe0f {warning_msg}")
+        logger.warning(f"⚠️ {warning_msg}")
         if is_github_actions:
             print(f"::warning title=No Data::{warning_msg}")
 

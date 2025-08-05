@@ -116,12 +116,12 @@ class ScraperManager:
                 })
                 
                 if job_count > 0:
-                    success_msg = f"✅ {scraper_name}: {job_count} jobs in {scraper_info['duration']:.1f}s"
+                    success_msg = f"SUCCESS {scraper_name}: {job_count} jobs in {scraper_info['duration']:.1f}s"
                     logger.info(success_msg)
                     if self.is_github_actions:
                         print(f"::notice title=Scraper Success::{success_msg}")
                 else:
-                    warning_msg = f"⚠️ {scraper_name}: 0 jobs found (method ran but returned empty DataFrame)"
+                    warning_msg = f"WARNING {scraper_name}: 0 jobs found (method ran but returned empty DataFrame)"
                     logger.warning(warning_msg)
                     if self.is_github_actions:
                         print(f"::warning title=No Jobs Found::{warning_msg}")
@@ -139,7 +139,7 @@ class ScraperManager:
             scraper_info['duration'] = time.time() - start_time
             error_msg = f"Timeout after {scraper_info['duration']:.1f}s: {str(e)}"
             scraper_info.update({'status': 'timeout', 'error': error_msg})
-            logger.error(f"❌ {scraper_name}: {error_msg}")
+            logger.error(f"ERROR {scraper_name}: {error_msg}")
             if self.is_github_actions:
                 print(f"::error title=Scraper Timeout::{scraper_name} - {error_msg}")
             return pd.DataFrame(), scraper_info
@@ -148,7 +148,7 @@ class ScraperManager:
             scraper_info['duration'] = time.time() - start_time
             error_msg = f"HTTP/Network error: {str(e)}"
             scraper_info.update({'status': 'network_error', 'error': error_msg})
-            logger.error(f"❌ {scraper_name}: {error_msg}")
+            logger.error(f"ERROR {scraper_name}: {error_msg}")
             if self.is_github_actions:
                 print(f"::error title=Network Error::{scraper_name} - {error_msg}")
             return pd.DataFrame(), scraper_info
@@ -166,7 +166,7 @@ class ScraperManager:
                 print(full_traceback)
                 print("::endgroup::")
             
-            logger.error(f"❌ {scraper_name}: {error_msg}")
+            logger.error(f"ERROR {scraper_name}: {error_msg}")
             return pd.DataFrame(), scraper_info
             
         finally:
@@ -184,13 +184,13 @@ class ScraperManager:
             print(f"::notice title=GitHub Actions Mode::Reducing concurrency to {max_concurrent} for better stability")
         
         total_scrapers = len(self.scrapers)
-        logger.info(f"🚀 Starting {total_scrapers} scrapers with max_concurrent={max_concurrent}")
+        logger.info(f"Starting {total_scrapers} scrapers with max_concurrent={max_concurrent}")
         
         if self.is_github_actions:
             print(f"::group::Scraper Execution Summary")
-            print(f"📊 Total scrapers to run: {total_scrapers}")
-            print(f"⚙️ Concurrency limit: {max_concurrent}")
-            print(f"🌐 Environment: GitHub Actions")
+            print(f"Total scrapers to run: {total_scrapers}")
+            print(f"Concurrency limit: {max_concurrent}")
+            print(f"Environment: GitHub Actions")
             print("::endgroup::")
         
         # Enhanced connector settings for CI environments
@@ -284,10 +284,10 @@ class ScraperManager:
             if all_dataframes:
                 combined_df = pd.concat(all_dataframes, ignore_index=True)
                 total_jobs = len(combined_df)
-                logger.info(f"📊 Final result: {total_jobs} jobs from {successful_scrapers} successful scrapers")
+                logger.info(f"FINAL RESULT: {total_jobs} jobs from {successful_scrapers} successful scrapers")
                 return combined_df
             else:
-                logger.warning("⚠️ No data collected from any scrapers")
+                logger.warning("WARNING: No data collected from any scrapers")
                 if self.is_github_actions:
                     print("::warning title=No Data Collected::All scrapers failed or returned empty results")
                 return pd.DataFrame()
@@ -304,28 +304,28 @@ class ScraperManager:
         """Log comprehensive execution summary"""
         
         if self.is_github_actions:
-            print(f"::group::📈 Execution Summary - {successful}/{total_scrapers} successful")
+            print(f"::group::Execution Summary - {successful}/{total_scrapers} successful")
         
         logger.info(f"\n" + "="*60)
-        logger.info(f"📈 SCRAPER EXECUTION SUMMARY")
+        logger.info(f"SCRAPER EXECUTION SUMMARY")
         logger.info(f"="*60)
-        logger.info(f"✅ Successful (with jobs): {successful}")
-        logger.info(f"🟡 Successful (no jobs): {no_jobs}")
-        logger.info(f"❌ Failed: {failed}")
-        logger.info(f"🕰️ Total duration: {duration:.1f}s")
+        logger.info(f"Successful (with jobs): {successful}")
+        logger.info(f"Successful (no jobs): {no_jobs}")
+        logger.info(f"Failed: {failed}")
+        logger.info(f"Total duration: {duration:.1f}s")
         logger.info(f"="*60)
         
         if self.is_github_actions:
-            print(f"✅ Successful scrapers: {successful}")
-            print(f"🟡 Empty results: {no_jobs}")
-            print(f"❌ Failed scrapers: {failed}")
-            print(f"🕰️ Total time: {duration:.1f}s")
+            print(f"Successful scrapers: {successful}")
+            print(f"Empty results: {no_jobs}")
+            print(f"Failed scrapers: {failed}")
+            print(f"Total time: {duration:.1f}s")
         
         # Log failed scrapers with details
         if self.failed_scrapers:
-            logger.error(f"\\n❌ FAILED SCRAPERS DETAILS:")
+            logger.error(f"\\nFAILED SCRAPERS DETAILS:")
             if self.is_github_actions:
-                print(f"\\n❌ Failed Scrapers Details:")
+                print(f"\\nFailed Scrapers Details:")
             
             # Group failures by type
             failure_types = {}
@@ -352,9 +352,9 @@ class ScraperManager:
         
         # Log successful scrapers summary
         if successful > 0:
-            logger.info(f"\\n✅ SUCCESSFUL SCRAPERS:")
+            logger.info(f"\\nSUCCESSFUL SCRAPERS:")
             if self.is_github_actions:
-                print(f"\\n✅ Successful Scrapers:")
+                print(f"\\nSuccessful Scrapers:")
             
             success_list = []
             for name, info in self.scraper_results.items():
