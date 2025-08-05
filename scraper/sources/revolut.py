@@ -36,14 +36,20 @@ class RevolutScraper(BaseScraper):
         
         all_jobs = []
         
-        # Get build ID dynamically first
+        # Skip complex build ID extraction and go directly to HTML fallback
+        logger.info("Using HTML fallback approach for Revolut scraper")
+        html_jobs = await self._scrape_careers_html(session)
+        all_jobs.extend(html_jobs)
+        
+        if all_jobs:
+            return pd.DataFrame(all_jobs)
+        
+        # If HTML approach fails, try simple API approach with known build ID
         try:
             build_id = await self.get_build_id(session)
             logger.info(f"Using build ID: {build_id}")
         except Exception as e:
-            logger.error(f"Failed to get build ID: {e}, trying HTML fallback")
-            html_jobs = await self._scrape_careers_html(session)
-            all_jobs.extend(html_jobs)
+            logger.warning(f"Build ID extraction failed: {e}, returning HTML results only")
             return pd.DataFrame(all_jobs) if all_jobs else pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
         
         # Try API approach with dynamic build ID
