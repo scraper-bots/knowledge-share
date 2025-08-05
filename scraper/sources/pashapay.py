@@ -54,8 +54,8 @@ class PashapayScraper(BaseScraper):
                 
                 # Check if we have items
                 items = data.get('items', [])
+                
                 if not items:
-                    logger.info(f"No more jobs found on page {page}")
                     break
                 
                 # Process each job item
@@ -65,10 +65,10 @@ class PashapayScraper(BaseScraper):
                         if job.get('archived_at'):
                             continue
                         
-                        position = job.get('position', '').strip()
-                        slug = job.get('slug', '').strip()
-                        city = job.get('city', '').strip()
-                        division = job.get('division', '').strip()
+                        position = (job.get('position') or '').strip()
+                        slug = (job.get('slug') or '').strip()
+                        city = (job.get('city') or '').strip()
+                        division = (job.get('division') or '').strip()
                         
                         if not position or not slug:
                             continue
@@ -97,19 +97,8 @@ class PashapayScraper(BaseScraper):
                         logger.warning(f"Error processing job item: {e}")
                         continue
                 
-                # Check if we have more pages
-                total_items = data.get('total', 0)
-                current_page = data.get('page', page)
-                items_per_page = len(items)
-                
-                # If we got fewer items than requested (20), we're on the last page
-                if items_per_page < 20:
-                    logger.info(f"Reached last page {current_page}")
-                    break
-                
-                # If we've processed all items based on total count
-                if len(jobs_data) >= total_items:
-                    logger.info(f"Retrieved all {total_items} jobs")
+                # Check pagination - if we got fewer items than requested (20), we're on the last page
+                if len(items) < 20:
                     break
                 
                 page += 1
