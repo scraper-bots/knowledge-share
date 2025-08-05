@@ -23,7 +23,7 @@ class IsqurScraper(BaseScraper):
             return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
             
         start_page = 1
-        end_page = 5
+        end_page = 2
         logger.info("Started scraping isqur.com")
         job_vacancies = []
         base_url = "https://isqur.com/is-elanlari/sehife-"
