@@ -229,6 +229,7 @@ class BaseScraper:
             'Revolut': '%revolut%',
             'Andersen': '%andersenlab%',
             'PashaPay': '%pashapay.huntflow%',
+            'BP': '%bp.com%',
         }
         
         if not apply_link:
