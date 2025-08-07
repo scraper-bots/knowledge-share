@@ -255,14 +255,9 @@ class RevolutScraper(BaseScraper):
             # Look for common job listing patterns
             job_elements = soup.find_all(['a', 'div'], href=True) or soup.find_all(string=lambda text: text and 'engineer' in text.lower())
             
-            # If we find any job-related content, create placeholder entries
+            # Look for actual job postings instead of creating placeholders
             if job_elements:
-                jobs.append({
-                    'company': 'Revolut',
-                    'vacancy': 'Various Positions Available',
-                    'apply_link': 'https://www.revolut.com/careers'
-                })
-                logger.info("HTML fallback found careers page, created placeholder entry")
+                logger.info("HTML fallback found careers page content, but no structured job data extracted")
             
             return jobs
             

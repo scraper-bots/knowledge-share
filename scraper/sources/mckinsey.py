@@ -14,7 +14,7 @@ class McKinseyScraper(BaseScraper):
     async def scrape_mckinsey(self, session):
         """
         Scrape job listings from McKinsey API for Baku positions
-        Falls back to manual job data if API is not accessible
+        Returns empty results if API is not accessible
         """
         # Try the API approach first
         api_url = "https://mckapi.mckinsey.com/api/jobsearch"
@@ -62,13 +62,13 @@ class McKinseyScraper(BaseScraper):
                 return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
             if data.get('status') != 'OK':
-                logger.warning(f"API returned status: {data.get('status', 'Unknown')}, using fallback")
-                return self._get_fallback_jobs()
+                logger.warning(f"API returned status: {data.get('status', 'Unknown')}, no job data available")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
             docs = data.get('docs', [])
             if not docs:
-                logger.info("No jobs found from McKinsey API, using fallback")
-                return self._get_fallback_jobs()
+                logger.info("No jobs found from McKinsey API, no job data available")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
             # Process successful API response
             for job in docs:
@@ -117,54 +117,14 @@ class McKinseyScraper(BaseScraper):
             logger.info(f"Scraped {len(docs)} jobs from McKinsey API")
             
         except Exception as processing_error:
-            logger.warning(f"Error processing McKinsey API response: {str(processing_error)}, using fallback")
-            return self._get_fallback_jobs()
+            logger.warning(f"Error processing McKinsey API response: {str(processing_error)}, no job data available")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
         if job_data:
             df = pd.DataFrame(job_data)
             logger.info(f"McKinsey scraping completed - total jobs: {len(job_data)}")
             return df
         else:
-            logger.info("No jobs from API, using fallback")
-            return self._get_fallback_jobs()
+            logger.info("No jobs from API, no job data available")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
-    def _get_fallback_jobs(self):
-        """
-        Fallback job data based on the provided JSON sample
-        """
-        fallback_jobs = [
-            {
-                'company': 'McKinsey & Company',
-                'vacancy': 'Associate (Consulting) - $192,000 - $192,000 | Also: Abu Dhabi, Amsterdam, Atlanta, Austin',
-                'apply_link': 'https://mckinsey.avature.net/careers/ApplicationMethods?folderId=15178'
-            },
-            {
-                'company': 'McKinsey & Company', 
-                'vacancy': 'Business Analyst (Consulting) - $112,000 - $125,000 | Also: Abu Dhabi, Athens, Atlanta, Austin',
-                'apply_link': 'https://mckinsey.avature.net/careers/ApplicationMethods?folderId=15136'
-            },
-            {
-                'company': 'McKinsey & Company',
-                'vacancy': 'Business Analyst Intern (Consulting) - $87,000-$87,000 | Also: Abu Dhabi, Athens, Atlanta',
-                'apply_link': 'https://mckinsey.avature.net/careers/ApplicationMethods?folderId=15275'
-            },
-            {
-                'company': 'McKinsey & Company',
-                'vacancy': 'Junior Associate (Consulting) | Also: Abu Dhabi, Addis Ababa, Almaty, Amsterdam',
-                'apply_link': 'https://mckinsey.avature.net/careers/ApplicationMethods?folderId=20159'
-            },
-            {
-                'company': 'McKinsey & Company',
-                'vacancy': 'Recruiting Intern (People & HR) - Baku Office',
-                'apply_link': 'https://mckinsey.avature.net/careers/ApplicationMethods?folderId=96955'
-            },
-            {
-                'company': 'McKinsey & Company',
-                'vacancy': 'Senior Accountant (Finance) - Baku Office',
-                'apply_link': 'https://mckinsey.avature.net/careers/ApplicationMethods?folderId=98042'
-            }
-        ]
-        
-        df = pd.DataFrame(fallback_jobs)
-        logger.info(f"Using McKinsey fallback data - {len(fallback_jobs)} jobs")
-        return df

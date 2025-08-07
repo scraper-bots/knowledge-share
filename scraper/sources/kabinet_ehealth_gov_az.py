@@ -12,15 +12,15 @@ class KabinetEhealthGovAzScraper(BaseScraper):
     
     NOTE: This site is a JavaScript-rendered SPA (Single Page Application) that loads
     job data dynamically via API calls. The getInterviewProgram API only contains
-    interview programs/specializations, not actual job vacancies. Until the correct
-    job vacancy API endpoint is discovered, this scraper uses curated fallback data.
+    interview programs/specializations, not actual job vacancies. The scraper attempts
+    to find the correct job vacancy API endpoint, returning empty results if unavailable.
     """
     
     @scraper_error_handler
     async def scrape_kabinet_ehealth_gov_az(self, session):
         """
         Scrape job listings from kabinet.e-health.gov.az medical vacancy portal
-        Attempts to find job vacancy API endpoints, falls back to curated data
+        Attempts to find job vacancy API endpoints, returns empty results if unavailable
         """
         # Try multiple potential API endpoints for job vacancies
         api_endpoints = [
