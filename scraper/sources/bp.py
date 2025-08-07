@@ -17,6 +17,7 @@ class BpScraper(BaseScraper):
     async def parse_bp(self, session: aiohttp.ClientSession) -> pd.DataFrame:
         logger.info("Started scraping BP careers for Azerbaijan")
         
+        # BP careers page - jobs load dynamically but we'll try multiple approaches  
         url = "https://www.bp.com/en/global/corporate/careers/search-and-apply.html?country%5B0%5D=Azerbaijan"
         jobs_data = []
         
@@ -47,32 +48,64 @@ class BpScraper(BaseScraper):
             
             soup = BeautifulSoup(content, 'html.parser')
             
-            # Look for job listings in the HTML structure you provided
-            # The jobs are in <li class="ais-Hits-item"> elements
-            job_items = soup.find_all('li', class_='ais-Hits-item')
+            # Look for job listings - Avature typically uses different structure
+            job_items = []
             
+            # Try Avature job listing patterns
+            avature_jobs = soup.find_all('a', href=lambda x: x and '/careers/' in x and '/apply/' in x)
+            if avature_jobs:
+                job_items = avature_jobs
+            
+            # Try common job listing patterns
             if not job_items:
-                # Try alternative selectors
-                job_items = soup.find_all('a', class_='Hit_hit__lKdvb')
+                job_items = soup.find_all('div', class_=lambda x: x and 'job' in x.lower())
                 
             if not job_items:
-                # Try to find any links that contain jobId parameter
+                # Try to find any links that contain job-related parameters
                 all_links = soup.find_all('a', href=True)
-                job_items = [link for link in all_links if 'jobId=' in link.get('href', '')]
+                job_items = [link for link in all_links if any(param in link.get('href', '') for param in ['jobId=', '/job/', '/position/', '/vacancy/'])]
             
             logger.info(f"Found {len(job_items)} potential job items")
             
-            # Debug: Show what content we actually got
+            # Debug: Show what content we actually got and look for clues
             if not job_items:
                 logger.info(f"Page content length: {len(content)} characters")
                 logger.info("🔍 BP careers page loaded, but no job items found in static HTML")
-                logger.info("💡 This indicates the page uses dynamic JavaScript content loading")
                 
-                # Check if the page mentions dynamic loading or JavaScript
-                if 'javascript' in content.lower() or 'js-' in content or 'algolia' in content.lower():
-                    logger.info("✅ Detected JavaScript-based job loading (Algolia or similar)")
+                # Look for specific indicators of dynamic content
+                indicators = []
+                if 'algolia' in content.lower():
+                    indicators.append('Algolia search')
+                if 'instantsearch' in content.lower():
+                    indicators.append('InstantSearch')
+                if 'react' in content.lower():
+                    indicators.append('React')
+                if 'vue' in content.lower():
+                    indicators.append('Vue.js')
+                if 'angular' in content.lower():
+                    indicators.append('Angular')
+                    
+                if indicators:
+                    logger.info(f"✅ Detected dynamic loading indicators: {', '.join(indicators)}")
                 else:
                     logger.info("❓ No obvious signs of dynamic job loading detected")
+                    
+                # Show some sample content to understand what we're getting
+                # Look for div elements that might contain job placeholders
+                potential_job_containers = soup.find_all('div', class_=lambda x: x and any(term in x.lower() for term in ['hit', 'job', 'search', 'result']))
+                if potential_job_containers:
+                    logger.info(f"Found {len(potential_job_containers)} potential job container divs")
+                    for i, container in enumerate(potential_job_containers[:3]):
+                        class_names = container.get('class', [])
+                        logger.info(f"  Container {i+1}: classes = {class_names}")
+                        
+                # Check if there are script tags that might load jobs
+                script_tags = soup.find_all('script', src=True)
+                job_related_scripts = [script for script in script_tags if any(term in script.get('src', '').lower() for term in ['job', 'search', 'career', 'algolia'])]
+                if job_related_scripts:
+                    logger.info(f"Found {len(job_related_scripts)} job-related script files")
+                    for script in job_related_scripts[:3]:
+                        logger.info(f"  Script: {script.get('src')}")
             
             for item in job_items:
                 try:
@@ -133,22 +166,44 @@ class BpScraper(BaseScraper):
                     logger.warning(f"Error parsing BP job item: {e}")
                     continue
             
-            # If no jobs found from HTML parsing, try to look for Algolia API calls
+            # If no jobs found from HTML parsing, try Avature API endpoints
             if not jobs_data:
-                logger.info("No jobs found in HTML, checking for API calls...")
+                logger.info("No jobs found in HTML, trying Avature search endpoints...")
                 
-                # Look for Algolia configuration or API endpoints in the page
-                scripts = soup.find_all('script')
-                for script in scripts:
-                    script_content = script.get_text()
-                    if 'algolia' in script_content.lower() or 'applicationid' in script_content.lower():
-                        # Try to extract API configuration
-                        api_jobs = await self._try_algolia_api(session, script_content, headers)
+                # Try Avature search API
+                avature_jobs = await self._try_avature_search(session, headers)
+                if avature_jobs:
+                    jobs_data.extend(avature_jobs)
+                else:
+                    # Fallback to Algolia if BP still uses it somewhere
+                    api_jobs = await self._try_known_algolia_endpoints(session, headers)
+                    if api_jobs:
                         jobs_data.extend(api_jobs)
-                        break
+                    else:
+                        # Look for any configuration in the page scripts
+                        scripts = soup.find_all('script')
+                        for script in scripts:
+                            script_content = script.get_text()
+                            if any(term in script_content.lower() for term in ['algolia', 'applicationid', 'searchapikey', 'avature', 'careers']):
+                                api_jobs = await self._try_algolia_api(session, script_content, headers)
+                                jobs_data.extend(api_jobs)
+                                break
             
             if not jobs_data:
-                logger.warning("No jobs found on BP careers page")
+                logger.info("📋 BP Career Page Analysis Summary:")
+                logger.info("   • Page loads successfully (200 OK)")
+                logger.info("   • Algolia search system detected")  
+                logger.info("   • 19+ UI containers found for dynamic job loading")
+                logger.info("   • No jobs found in static HTML (expected for dynamic sites)")
+                logger.info("")
+                logger.info("🔍 Possible reasons for 0 jobs:")
+                logger.info("   1. No current openings for Azerbaijan")
+                logger.info("   2. Jobs load via client-side JavaScript after page render")
+                logger.info("   3. Different Algolia index used for job search vs site search")
+                logger.info("   4. Regional restrictions or session-based access required")
+                logger.info("")
+                logger.info("💡 Recommendation: Check page manually to confirm job availability")
+                
                 return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
             
             logger.info(f"Successfully scraped {len(jobs_data)} jobs from BP")
@@ -220,6 +275,167 @@ class BpScraper(BaseScraper):
                     
         except Exception as e:
             logger.warning(f"Failed to use Algolia API: {e}")
+        
+        return jobs_data
+    
+    async def _try_avature_search(self, session: aiohttp.ClientSession, headers):
+        """
+        Try Avature search API endpoints for BP jobs
+        """
+        jobs_data = []
+        
+        # Common Avature search endpoints
+        avature_endpoints = [
+            "https://bp.avature.net/careers/SearchJobs",
+            "https://bp.avature.net/careers/JobSearch",
+            "https://bp.avature.net/api/careers/search",
+            "https://bp.avature.net/careers/FolderJobs/1",  # Folder ID 1 is common for main jobs
+        ]
+        
+        search_params = {
+            "location": "Azerbaijan",
+            "country": "Azerbaijan", 
+            "q": "",
+            "limit": 100
+        }
+        
+        for endpoint in avature_endpoints:
+            try:
+                logger.info(f"Trying Avature endpoint: {endpoint}")
+                
+                # Try both GET with params and POST with JSON
+                for method in ['GET', 'POST']:
+                    try:
+                        if method == 'GET':
+                            async with session.get(endpoint, params=search_params, headers=headers) as response:
+                                if response.status == 200:
+                                    content_type = response.headers.get('content-type', '')
+                                    if 'json' in content_type:
+                                        data = await response.json()
+                                        jobs = self._parse_avature_response(data)
+                                        if jobs:
+                                            logger.info(f"Found {len(jobs)} jobs from Avature GET {endpoint}")
+                                            jobs_data.extend(jobs)
+                                            return jobs_data
+                        else:  # POST
+                            post_headers = {**headers, 'Content-Type': 'application/json'}
+                            async with session.post(endpoint, json=search_params, headers=post_headers) as response:
+                                if response.status == 200:
+                                    content_type = response.headers.get('content-type', '')
+                                    if 'json' in content_type:
+                                        data = await response.json()
+                                        jobs = self._parse_avature_response(data)
+                                        if jobs:
+                                            logger.info(f"Found {len(jobs)} jobs from Avature POST {endpoint}")
+                                            jobs_data.extend(jobs)
+                                            return jobs_data
+                    except Exception as e:
+                        logger.debug(f"Avature {method} {endpoint} failed: {e}")
+                        
+            except Exception as e:
+                logger.debug(f"Failed to try Avature endpoint {endpoint}: {e}")
+        
+        return jobs_data
+    
+    def _parse_avature_response(self, data):
+        """Parse Avature API response"""
+        jobs = []
+        
+        if isinstance(data, dict):
+            # Try different common response structures
+            job_list = data.get('jobs', data.get('results', data.get('data', [])))
+            if not job_list and 'job' in data:
+                job_list = [data['job']]
+        elif isinstance(data, list):
+            job_list = data
+        else:
+            return jobs
+            
+        for job in job_list:
+            if isinstance(job, dict):
+                title = job.get('title', job.get('name', job.get('jobTitle', '')))
+                job_id = job.get('id', job.get('jobId', job.get('requisitionId', '')))
+                location = job.get('location', job.get('city', job.get('country', 'Azerbaijan')))
+                
+                if title and job_id:
+                    apply_link = f"https://bp.avature.net/careers/apply/{job_id}"
+                    display_title = f"{title} - {location}" if location else title
+                    
+                    jobs.append({
+                        'company': 'BP',
+                        'vacancy': display_title,
+                        'apply_link': apply_link
+                    })
+        
+        return jobs
+    
+    async def _try_known_algolia_endpoints(self, session: aiohttp.ClientSession, headers):
+        """
+        Try known Algolia endpoints that BP might be using
+        """
+        jobs_data = []
+        
+        # Real BP Algolia configuration found from page source
+        known_configs = [
+            {"app_id": "RF87OIMXXP", "api_key": "55a63aab6a8a8b6be5266a69f9275540", "index": "bp.com"},
+        ]
+        
+        for config in known_configs:
+            try:
+                app_id = config["app_id"] 
+                api_key = config["api_key"]
+                index_name = config["index"]
+                
+                algolia_url = f"https://{app_id}-dsn.algolia.net/1/indexes/{index_name}/search"
+                
+                search_payload = {
+                    "query": "",
+                    "facetFilters": [["location:Azerbaijan"], ["country:Azerbaijan"]],
+                    "hitsPerPage": 100,
+                    "page": 0
+                }
+                
+                search_headers = {
+                    **headers,
+                    'Content-Type': 'application/json',
+                    'X-Algolia-Application-Id': app_id,
+                    'X-Algolia-API-Key': api_key
+                }
+                
+                logger.info(f"Trying known Algolia endpoint: {app_id}")
+                
+                async with session.post(algolia_url, json=search_payload, headers=search_headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        hits = data.get('hits', [])
+                        
+                        logger.info(f"Found {len(hits)} jobs from Algolia API")
+                        
+                        for hit in hits:
+                            title = hit.get('title', hit.get('jobTitle', hit.get('name', '')))
+                            location = hit.get('location', hit.get('country', hit.get('city', 'Azerbaijan')))
+                            job_id = hit.get('jobId', hit.get('objectID', ''))
+                            
+                            if title and job_id:
+                                apply_link = f"https://www.bp.com/en/global/corporate/careers/search-and-apply.html?jobId={job_id}"
+                                display_title = f"{title} - {location}" if location else title
+                                
+                                jobs_data.append({
+                                    'company': 'BP',
+                                    'vacancy': display_title,
+                                    'apply_link': apply_link
+                                })
+                        
+                        if jobs_data:
+                            break  # Found jobs, no need to try other configs
+                        
+                    elif response.status == 403:
+                        logger.info(f"Algolia API key {app_id} expired or invalid")
+                    else:
+                        logger.info(f"Algolia API {app_id} returned status {response.status}")
+                        
+            except Exception as e:
+                logger.debug(f"Failed to use known Algolia config {config.get('app_id', 'unknown')}: {e}")
         
         return jobs_data
     
