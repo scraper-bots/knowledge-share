@@ -233,6 +233,7 @@ class BaseScraper:
             'Veyseloglu': '%veyseloglu%',
             'McKinsey': '%mckinsey%',
             'JobNet.az': '%jobnet.az%',
+            'kabinet.e-health.gov.az': '%kabinet.e-health.gov.az%',
             'e-health.gov.az': '%e-health.gov.az%',
         }
         
