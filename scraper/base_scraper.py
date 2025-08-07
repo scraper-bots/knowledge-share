@@ -150,7 +150,7 @@ class BaseScraper:
                     else:
                         logger.warning(f"HTTP {response.status} for {url}")
                         return ""
-            except (asyncio.TimeoutError, aiohttp.ClientTimeout) as e:
+            except asyncio.TimeoutError as e:
                 if attempt < max_retries - 1:
                     # Extended backoff for timeout errors in CI
                     wait_time = (3 ** attempt) + random.uniform(2, 5) if is_github_actions else (2 ** attempt) + random.uniform(0, 1)
