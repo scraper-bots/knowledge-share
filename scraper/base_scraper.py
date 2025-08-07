@@ -231,6 +231,7 @@ class BaseScraper:
             'PashaPay': '%pashapay.huntflow%',
             'BP': '%bp.com%',
             'Veyseloglu': '%veyseloglu%',
+            'McKinsey': '%mckinsey%',
         }
         
         if not apply_link:
