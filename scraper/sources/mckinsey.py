@@ -42,12 +42,12 @@ class McKinseyScraper(BaseScraper):
             response = await self.fetch_url_async(api_url, session, params=params, headers=headers, verify_ssl=True, max_retries=2)
 
             if not response:
-                logger.warning("McKinsey API not accessible, using fallback job data")
-                return self._get_fallback_jobs()
+                logger.warning("McKinsey API not accessible, no job data available")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
                 
         except Exception as api_error:
-            logger.warning(f"McKinsey API failed ({str(api_error)}), using fallback job data")
-            return self._get_fallback_jobs()
+            logger.warning(f"McKinsey API failed ({str(api_error)}), no job data available")
+            return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
         # Process API response if successful
         try:
@@ -58,8 +58,8 @@ class McKinseyScraper(BaseScraper):
                 import json
                 data = json.loads(response)
             else:
-                logger.warning(f"Unexpected response format from McKinsey API: {type(response)}, using fallback")
-                return self._get_fallback_jobs()
+                logger.warning(f"Unexpected response format from McKinsey API: {type(response)}, no job data available")
+                return pd.DataFrame(columns=['company', 'vacancy', 'apply_link'])
 
             if data.get('status') != 'OK':
                 logger.warning(f"API returned status: {data.get('status', 'Unknown')}, using fallback")
