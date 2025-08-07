@@ -235,6 +235,7 @@ class BaseScraper:
             'JobNet.az': '%jobnet.az%',
             'kabinet.e-health.gov.az': '%kabinet.e-health.gov.az%',
             'e-health.gov.az': '%e-health.gov.az%',
+            'iseqebul.az': '%iseqebul.az%',
         }
         
         if not apply_link:
