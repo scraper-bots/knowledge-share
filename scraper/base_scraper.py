@@ -232,6 +232,7 @@ class BaseScraper:
             'BP': '%bp.com%',
             'Veyseloglu': '%veyseloglu%',
             'McKinsey': '%mckinsey%',
+            'JobNet.az': '%jobnet.az%',
         }
         
         if not apply_link:
