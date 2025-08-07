@@ -230,6 +230,7 @@ class BaseScraper:
             'Andersen': '%andersenlab%',
             'PashaPay': '%pashapay.huntflow%',
             'BP': '%bp.com%',
+            'Veyseloglu': '%veyseloglu%',
         }
         
         if not apply_link:
