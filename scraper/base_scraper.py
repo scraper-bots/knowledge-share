@@ -99,15 +99,27 @@ class BaseScraper:
         # Detect if running in GitHub Actions
         is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
         
+        # Rotate User-Agent strings to avoid detection
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        ]
+        
         # Enhanced headers for CI environments
         default_headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'User-Agent': random.choice(user_agents),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1'
         }
         
         request_headers = {**default_headers, **(headers or {})}
@@ -115,6 +127,9 @@ class BaseScraper:
         # Enhanced retry logic for CI environments
         if is_github_actions:
             max_retries = min(max_retries, 2)  # Reduce retries in CI to avoid timeouts
+        
+        # Track failed attempts for better error reporting
+        last_error = None
         
         for attempt in range(max_retries):
             try:
@@ -139,18 +154,22 @@ class BaseScraper:
                                 detected = chardet.detect(content)
                                 encoding = detected.get('encoding', 'utf-8')
                                 return content.decode(encoding, errors='ignore')
-                    elif response.status in [403, 429, 503]:  # Common CI blocking statuses
+                    elif response.status in [403, 429, 503, 502, 504]:  # Common CI blocking statuses
+                        last_error = f"HTTP {response.status}"
                         if is_github_actions:
-                            # Longer backoff in CI environments
-                            wait_time = min((3 ** attempt) + random.uniform(1, 3), 15)
+                            # Exponential backoff with jitter for CI
+                            wait_time = min((3 ** attempt) + random.uniform(2, 5), 20)
                         else:
-                            wait_time = (2 ** attempt) + random.uniform(0, 1)
-                        await asyncio.sleep(wait_time)
+                            wait_time = (2 ** attempt) + random.uniform(0, 2)
+                        
+                        if attempt < max_retries - 1:  # Don't sleep on last attempt
+                            await asyncio.sleep(wait_time)
                         continue
                     else:
                         logger.warning(f"HTTP {response.status} for {url}")
                         return ""
             except asyncio.TimeoutError as e:
+                last_error = f"Timeout: {str(e)}"
                 if attempt < max_retries - 1:
                     # Extended backoff for timeout errors in CI
                     wait_time = (3 ** attempt) + random.uniform(2, 5) if is_github_actions else (2 ** attempt) + random.uniform(0, 1)
@@ -158,11 +177,17 @@ class BaseScraper:
                 else:
                     logger.error(f"Timeout fetching {url} after {max_retries} attempts: {str(e)}")
             except Exception as e:
+                last_error = f"Exception: {str(e)}"
                 if attempt < max_retries - 1:
                     wait_time = (2 ** attempt) + random.uniform(1, 2) if is_github_actions else (2 ** attempt) + random.uniform(0, 1)
                     await asyncio.sleep(wait_time)
                 else:
                     logger.error(f"Failed to fetch {url} after {max_retries} attempts: {str(e)}")
+        
+        # Log final failure with context
+        if last_error:
+            logger.warning(f"URL fetch failed: {url} - {last_error}")
+        
         return ""
 
     def determine_source(self, apply_link: str) -> str:

@@ -23,6 +23,7 @@ class ScraperManager:
         self.scraper_results = {}  # Track detailed results for each scraper
         self.failed_scrapers = {}  # Track failed scrapers with reasons
         self.is_github_actions = os.getenv('GITHUB_ACTIONS') == 'true'
+        self.website_health_cache = {}  # Cache for website health checks
         self.load_scrapers()
     
     def load_scrapers(self):
@@ -58,6 +59,33 @@ class ScraperManager:
             if (method_name.startswith('parse_') or method_name.startswith('scrape_')) and callable(getattr(scraper_instance, method_name)):
                 methods.append(getattr(scraper_instance, method_name))
         return methods
+    
+    async def check_website_health(self, url: str, session: aiohttp.ClientSession) -> bool:
+        """Quick health check for a website to avoid wasting time on dead sites"""
+        # Skip health check for API endpoints or complex URLs
+        if not url.startswith(('http://', 'https://')) or '/api/' in url or '?' in url:
+            return True
+            
+        # Check cache first
+        if url in self.website_health_cache:
+            return self.website_health_cache[url]
+        
+        try:
+            # Quick HEAD request to check if site is responsive
+            async with session.head(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                is_healthy = response.status < 500  # Accept redirects, client errors, but not server errors
+                self.website_health_cache[url] = is_healthy
+                return is_healthy
+        except Exception:
+            # If HEAD fails, try a quick GET
+            try:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    is_healthy = response.status < 500
+                    self.website_health_cache[url] = is_healthy
+                    return is_healthy
+            except Exception:
+                self.website_health_cache[url] = False
+                return False
     
     async def run_single_scraper(self, scraper_name: str, session: aiohttp.ClientSession) -> Tuple[pd.DataFrame, dict]:
         """Run a single scraper and return its results with detailed status info"""
@@ -144,10 +172,23 @@ class ScraperManager:
             
         except aiohttp.ClientError as e:
             scraper_info['duration'] = time.time() - start_time
-            error_msg = f"Network error: {str(e)}"
-            scraper_info.update({'status': 'network_error', 'error': error_msg})
+            # Categorize network errors more specifically
+            if "403" in str(e) or "Forbidden" in str(e):
+                status = 'blocked'
+                error_msg = f"Access blocked (likely IP banned): {str(e)}"
+            elif "429" in str(e) or "Too Many Requests" in str(e):
+                status = 'rate_limited'
+                error_msg = f"Rate limited: {str(e)}"
+            elif "timeout" in str(e).lower() or "timed out" in str(e).lower():
+                status = 'timeout'
+                error_msg = f"Request timeout: {str(e)}"
+            else:
+                status = 'network_error'
+                error_msg = f"Network error: {str(e)}"
+            
+            scraper_info.update({'status': status, 'error': error_msg})
             if self.is_github_actions:
-                print(f"::error title=Network::{scraper_name}: {error_msg}")
+                print(f"::error title={status.title()}::{scraper_name}: {error_msg}")
             else:
                 logger.error(f"✗ {scraper_name}: {error_msg}")
             return pd.DataFrame(), scraper_info
@@ -175,7 +216,7 @@ class ScraperManager:
         self.failed_scrapers = {}
         
         if self.is_github_actions:
-            max_concurrent = min(max_concurrent, 3)  # Reduce concurrency in CI
+            max_concurrent = min(max_concurrent, 2)  # Further reduce concurrency in CI
             print(f"::notice title=GitHub Actions Mode::Reducing concurrency to {max_concurrent} for better stability")
         
         total_scrapers = len(self.scrapers)
@@ -210,8 +251,11 @@ class ScraperManager:
             async def run_with_semaphore(scraper_name):
                 async with semaphore:
                     if self.is_github_actions:
-                        # Add delay between scraper starts in CI
-                        await asyncio.sleep(random.uniform(0.5, 2))
+                        # Add longer delay between scraper starts in CI
+                        await asyncio.sleep(random.uniform(2, 5))
+                    else:
+                        # Small delay for local development
+                        await asyncio.sleep(random.uniform(0.1, 0.5))
                     return await self.run_single_scraper(scraper_name, session)
             
             # Run all scrapers concurrently
@@ -292,10 +336,20 @@ class ScraperManager:
         return {name: cls.__name__ for name, cls in self.scrapers.items()}
     
     def _log_execution_summary(self, total_scrapers: int, successful: int, no_jobs: int, failed: int, duration: float):
-        """Log comprehensive execution summary"""
+        """Log comprehensive execution summary with failure analysis"""
+        
+        # Categorize failures for better insights
+        failure_categories = {}
+        for name, info in self.failed_scrapers.items():
+            status = info.get('status', 'unknown')
+            failure_categories[status] = failure_categories.get(status, 0) + 1
         
         if self.is_github_actions:
             print(f"::notice title=Summary::{successful}/{total_scrapers} successful, {no_jobs} empty, {failed} failed ({duration:.1f}s)")
+            # Log failure breakdown for CI analysis
+            if failure_categories:
+                category_str = ", ".join([f"{status}: {count}" for status, count in failure_categories.items()])
+                print(f"::notice title=Failure Breakdown::{category_str}")
         else:
             logger.info(f"\n" + "="*60)
             logger.info(f"EXECUTION SUMMARY")
@@ -303,6 +357,13 @@ class ScraperManager:
             logger.info(f"○ Empty: {no_jobs}")
             logger.info(f"✗ Failed: {failed}")
             logger.info(f"⏱ Duration: {duration:.1f}s")
+            
+            # Show failure categories
+            if failure_categories:
+                logger.info(f"\nFailure Breakdown:")
+                for status, count in failure_categories.items():
+                    logger.info(f"  {status}: {count}")
+            
             logger.info(f"="*60)
         
         # For local development, show failed scrapers details
