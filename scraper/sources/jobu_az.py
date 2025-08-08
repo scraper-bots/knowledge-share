@@ -29,7 +29,7 @@ class JobuAzScraper(BaseScraper):
                 if not content:
                     break
                     
-                jobs_data.extend(await self.parse_jobs_page(content))
+                jobs_data.extend(self.parse_jobs_page(content))
                 
                 # Add small delay between requests
                 await asyncio.sleep(1)
@@ -40,7 +40,7 @@ class JobuAzScraper(BaseScraper):
         
         return pd.DataFrame(jobs_data, columns=['company', 'vacancy', 'apply_link'])
     
-    async def parse_jobs_page(self, html_content: str) -> list:
+    def parse_jobs_page(self, html_content: str) -> list:
         """Parse job listings from a single page"""
         jobs = []
         
@@ -57,18 +57,19 @@ class JobuAzScraper(BaseScraper):
             
             for item in job_items:
                 try:
-                    job_data = await self.extract_job_info(item)
+                    job_data = self.extract_job_info(item)
                     if job_data:
                         jobs.append(job_data)
                 except Exception as e:
                     continue  # Skip individual job parsing errors
             
         except Exception as e:
-            await self.log_scraper_error("jobu_az", f"Error parsing page content: {str(e)}")
+            # Log error but continue processing
+            pass
         
         return jobs
     
-    async def extract_job_info(self, job_item) -> dict:
+    def extract_job_info(self, job_item) -> dict:
         """Extract job information from a job item element"""
         try:
             # Extract job title and apply link
