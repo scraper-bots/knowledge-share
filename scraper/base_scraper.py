@@ -238,6 +238,7 @@ class BaseScraper:
             'iseqebul.az': '%iseqebul.az%',
             'azjob.az': '%azjob.az%',
             'jobu.az': '%jobu.az%',
+            'jooble.az': '%jooble.az%',
         }
         
         if not apply_link:
