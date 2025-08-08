@@ -29,7 +29,7 @@ class JobuAzScraper(BaseScraper):
                 if not content:
                     break
                     
-                jobs_data.extend(self.parse_jobs_page(content))
+                jobs_data.extend(self._parse_jobs_page(content))
                 
                 # Add small delay between requests
                 await asyncio.sleep(1)
@@ -40,7 +40,7 @@ class JobuAzScraper(BaseScraper):
         
         return pd.DataFrame(jobs_data, columns=['company', 'vacancy', 'apply_link'])
     
-    def parse_jobs_page(self, html_content: str) -> list:
+    def _parse_jobs_page(self, html_content: str) -> list:
         """Parse job listings from a single page"""
         jobs = []
         
