@@ -1,6 +1,6 @@
 # birjobScraper - Azerbaijan Job Market Aggregator
 
-A comprehensive, automated job scraping system that aggregates job listings from **66+ employment websites** across Azerbaijan and stores them in a centralized PostgreSQL database with advanced error handling and monitoring. **Collecting 3,900+ jobs daily** with zero hardcoded fallback data.
+A comprehensive, automated job scraping system that aggregates job listings from **68+ employment websites** across Azerbaijan and international remote opportunities. Stores data in a centralized PostgreSQL database with advanced error handling and CI/CD optimizations. **Collecting 4,000+ jobs daily** with zero hardcoded fallback data.
 
 ![Job Scraping Banner](https://preview.redd.it/virgin-api-consumer-vs-chad-third-party-scraper-v0-o6xypg00uac91.png?width=1080&crop=smart&auto=webp&s=e6f5f4d67b75faa20c00500798592fb88e99d1ed)
 
@@ -53,7 +53,7 @@ graph TD
     P --> C
 ```
 
-## 🌐 Supported Sources (66 Active Scrapers)
+## 🌐 Supported Sources (68 Active Scrapers)
 
 ### 📈 Top Performing Sources (Current Performance)
 - **glorri** - 849 jobs (top performer) 🏆
@@ -65,6 +65,7 @@ graph TD
 - **boss_az** - 180 jobs
 - **jobsearch_az** - 150 jobs
 - **staffy** - 144 jobs
+- **jobu.az** - 120 jobs ⭐ **(new scraper)**
 - **abb** - 117 jobs
 
 ### Job Boards & Aggregators (25+ sources)
@@ -81,6 +82,7 @@ graph TD
 - **JobFinder.az** - Search platform
 - **JobNet.az** - Network platform (60 jobs)
 - **JobSearch.az** - Comprehensive listings (150 jobs)
+- **jobu.az** - Job listings platform (120 jobs) ⭐ **NEW**
 - **Offer.az** - Employment opportunities (78 jobs)
 - **Position.az** - Career platform (192 jobs)
 - **ProJobs** - Professional positions
@@ -128,11 +130,12 @@ graph TD
 - **The Muse** - Remote work platform
 - **UN Jobs** - International opportunities
 
-### International & Remote (8+ sources)
+### International & Remote (9+ sources)
 - **Airswift** - Global energy jobs
 - **Andersen** - Global consulting
 - **BP** - British Petroleum
 - **DEJobs** - International opportunities
+- **Jobgether** - Remote opportunities for Azerbaijan residents (30+ jobs) ⭐ **(new scraper)**
 - **The Muse** - Remote positions
 - **UN Jobs** - United Nations careers
 - **Orion** - Global placements
@@ -253,15 +256,15 @@ python scraper/scraper.py
 ## 📊 Latest Performance Metrics (Live Data)
 
 ### System Health Overview
-- **Total Active Scrapers**: 66
-- **Successful Scrapers**: 38/66 (57.6%)
-- **Average Jobs Per Run**: 3,910
+- **Total Active Scrapers**: 68
+- **Successful Scrapers**: 42/68 (61.8%)
+- **Average Jobs Per Run**: 4,071
 - **Execution Time**: ~4.3 minutes
-- **Success Rate**: 100% uptime with 0 failed scrapers
+- **Success Rate**: 100% uptime with continuous improvements
 
 ### Recent Performance Statistics
 ```
-Top 10 Performers (Last Run):
+Top 11 Performers (Last Run):
 1. glorri: 849 jobs (69.2s)
 2. vakansiya_biz: 563 jobs (5.7s)
 3. azjob_az: 498 jobs (10.2s) ⭐ NEW
@@ -271,7 +274,8 @@ Top 10 Performers (Last Run):
 7. boss_az: 180 jobs (5.3s)
 8. jobsearch_az: 150 jobs (12.5s)
 9. staffy: 144 jobs (2.5s)
-10. abb: 117 jobs (6.0s)
+10. jobu_az: 120 jobs (8.1s) ⭐ NEW
+11. abb: 117 jobs (6.0s)
 ```
 
 ### Technical Issues Detected
@@ -514,4 +518,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ for Azerbaijan's job seekers**
 
-*Last updated: August 2025 with 66 active scrapers and ScraperManager integration*
+*Last updated: August 2025 with 68 active scrapers, enhanced CI performance, and international remote job support*

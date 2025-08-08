@@ -22,8 +22,7 @@ class JobgetherComScraper(BaseScraper):
         
         try:
             # jobgether.com uses heavy JavaScript and may block automated requests
-            # This is a basic implementation that extracts available remote jobs for Azerbaijan
-            page_url = f"{self.base_url}/remote-jobs/azerbaijan/1"
+            # This implementation extracts available remote jobs for Azerbaijan from first 3 pages
             
             # Enhanced headers to appear more browser-like
             headers = {
@@ -43,21 +42,36 @@ class JobgetherComScraper(BaseScraper):
                 'Upgrade-Insecure-Requests': '1',
             }
             
-            content = await self.fetch_url_async(page_url, session, headers=headers)
+            # Scrape first 3 pages
+            all_jobs = []
+            for page in range(1, 4):  # Pages 1, 2, 3
+                try:
+                    page_url = f"{self.base_url}/remote-jobs/azerbaijan/{page}"
+                    content = await self.fetch_url_async(page_url, session, headers=headers)
+                    
+                    if content and len(content) > 1000:
+                        page_jobs = self.parse_jobs_page(content)
+                        if page_jobs:
+                            all_jobs.extend(page_jobs)
+                    
+                    # Add delay between page requests
+                    if page < 3:  # Don't delay after last page
+                        await asyncio.sleep(1.5)
+                        
+                except Exception as e:
+                    await self.log_scraper_error("jobgether_com", f"Error scraping page {page}: {str(e)}", f"{self.base_url}/remote-jobs/azerbaijan/{page}")
+                    continue
             
-            if content and len(content) > 1000:
-                jobs_data = self.parse_jobs_page(content)
-                
-                # Remove duplicates based on company and vacancy
-                if jobs_data:
-                    seen = set()
-                    unique_jobs = []
-                    for job in jobs_data:
-                        job_key = (job['company'], job['vacancy'])
-                        if job_key not in seen:
-                            seen.add(job_key)
-                            unique_jobs.append(job)
-                    jobs_data = unique_jobs
+            # Remove duplicates based on company and vacancy
+            if all_jobs:
+                seen = set()
+                unique_jobs = []
+                for job in all_jobs:
+                    job_key = (job['company'], job['vacancy'])
+                    if job_key not in seen:
+                        seen.add(job_key)
+                        unique_jobs.append(job)
+                jobs_data = unique_jobs
                 
         except Exception as e:
             await self.log_scraper_error("jobgether_com", f"Error accessing site: {str(e)}", self.base_url)
