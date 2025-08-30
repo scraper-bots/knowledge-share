@@ -66,32 +66,8 @@ class BaseScraper:
         }
 
     async def log_scraper_error(self, scraper_name: str, error_message: str, url: str = None, retry_count: int = 0):
-        """Log scraper errors to database"""
-        try:
-            conn = psycopg2.connect(**self.db_params)
-            cursor = conn.cursor()
-            
-            # Try the new schema first, fallback to simple logging
-            try:
-                insert_query = """
-                    INSERT INTO scraper.scraper_errors (scraper_name, error_message, url, retry_count, timestamp)
-                    VALUES (%s, %s, %s, %s, NOW())
-                """
-                cursor.execute(insert_query, (scraper_name, error_message, url, retry_count))
-            except psycopg2.Error:
-                # Fallback to simpler error logging
-                insert_query = """
-                    INSERT INTO scraper.scraper_errors (error_message, timestamp)
-                    VALUES (%s, NOW())
-                """
-                cursor.execute(insert_query, (f"{scraper_name}: {error_message}",))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-        except Exception as e:
-            # Just log to console if database logging fails
-            logger.error(f"Scraper error ({scraper_name}): {error_message}")
+        """Log scraper errors to console only"""
+        logger.error(f"Scraper error ({scraper_name}): {error_message}")
 
     async def fetch_url_async(self, url: str, session: aiohttp.ClientSession, params=None, headers=None, verify_ssl=True, max_retries: int = 3) -> str:
         """Asynchronously fetch URL content with enhanced retry logic for CI environments"""
