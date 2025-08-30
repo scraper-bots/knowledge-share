@@ -28,11 +28,7 @@ jobs:
 
     - name: Run parser and save to database
       env:
-        DB_HOST: ${{ secrets.DB_HOST }}
-        DB_PORT: ${{ secrets.DB_PORT }}
-        DB_USER: ${{ secrets.DB_USER }}
-        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-        DB_NAME: ${{ secrets.DB_NAME }}
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
         EMAIL: ${{ secrets.EMAIL }}
         PASSWORD: ${{ secrets.PASSWORD }}
       run: python scraper/scraper.py

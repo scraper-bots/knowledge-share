@@ -55,15 +55,20 @@ class BaseScraper:
         }
 
     def load_db_credentials(self):
-        """Load database credentials from environment variables"""
-        return {
-            'host': os.getenv('DB_HOST'),
-            'port': os.getenv('DB_PORT'),
-            'database': os.getenv('DB_NAME'),
-            'user': os.getenv('DB_USER'),
-            'password': os.getenv('DB_PASSWORD'),
-            'options': f"-c search_path={os.getenv('DB_SCHEMA', 'public')}"
-        }
+        """Load database credentials from DATABASE_URL environment variable"""
+        database_url = os.getenv('DATABASE_URL')
+        if database_url:
+            return database_url
+        else:
+            # Fallback to individual credentials for backward compatibility
+            return {
+                'host': os.getenv('DB_HOST'),
+                'port': os.getenv('DB_PORT'),
+                'database': os.getenv('DB_NAME'),
+                'user': os.getenv('DB_USER'),
+                'password': os.getenv('DB_PASSWORD'),
+                'options': f"-c search_path={os.getenv('DB_SCHEMA', 'public')}"
+            }
 
     async def log_scraper_error(self, scraper_name: str, error_message: str, url: str = None, retry_count: int = 0):
         """Log scraper errors to console only"""
@@ -270,7 +275,13 @@ class BaseScraper:
             return
 
         try:
-            with psycopg2.connect(**self.db_params) as conn:
+            # Handle both DATABASE_URL string and dictionary parameters
+            if isinstance(self.db_params, str):
+                conn = psycopg2.connect(self.db_params)
+            else:
+                conn = psycopg2.connect(**self.db_params)
+            
+            with conn:
                 with conn.cursor() as cur:
                     # Start transaction
                     conn.autocommit = False
