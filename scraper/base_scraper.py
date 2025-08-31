@@ -246,6 +246,7 @@ class BaseScraper:
             'jobu.az': '%jobu.az%',
             'jooble.az': '%jooble.az%',
             'jobgether.com': '%jobgether.com%',
+            'Azvak': '%azvak%',
         }
         
         if not apply_link:

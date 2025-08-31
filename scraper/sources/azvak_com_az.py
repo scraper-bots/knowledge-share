@@ -24,7 +24,7 @@ class AzvakComAzScraper(BaseScraper):
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
             'Accept': '*/*',
             'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ru;q=0.7,az;q=0.6',
-            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Origin': 'https://azvak.az',
             'Referer': 'https://azvak.az/',
             'Sec-Ch-Ua': '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
@@ -58,17 +58,17 @@ class AzvakComAzScraper(BaseScraper):
                         'sort': ''
                     }
                     
-                    response_data = await self.fetch_url_async(
-                        url, 
-                        session, 
-                        params=params,
-                        headers=headers,
-                        verify_ssl=True
-                    )
+                    # Use direct session call to handle JSON properly
+                    async with session.get(url, params=params, headers=headers) as response:
+                        if response.status == 200:
+                            response_data = await response.json()
+                        else:
+                            logger.warning(f"HTTP {response.status} for page {page}")
+                            continue
                     
                     if response_data and isinstance(response_data, dict):
-                        # Parse JSON response
-                        vacancies = response_data.get('data', {}).get('vacancies', [])
+                        # Parse JSON response - expect {"data": [...]}
+                        vacancies = response_data.get('data', [])
                         
                         if not vacancies and page == 1:
                             logger.warning("No vacancies found in API response")
@@ -79,7 +79,13 @@ class AzvakComAzScraper(BaseScraper):
                         
                         for vacancy in vacancies:
                             try:
-                                company = vacancy.get('company_name', '').strip()
+                                # Handle nested company object
+                                company_obj = vacancy.get('company', {})
+                                if isinstance(company_obj, dict):
+                                    company = company_obj.get('name', '').strip()
+                                else:
+                                    company = str(company_obj).strip()
+                                
                                 title = vacancy.get('title', '').strip()
                                 vacancy_id = vacancy.get('id', '')
                                 
@@ -135,6 +141,8 @@ async def main():
                 
         except Exception as e:
             print(f"Error running scraper: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
