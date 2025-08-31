@@ -89,9 +89,23 @@ class AzvakComAzScraper(BaseScraper):
                                 title = vacancy.get('title', '').strip()
                                 vacancy_id = vacancy.get('id', '')
                                 
-                                # Create apply link
-                                if vacancy_id:
-                                    apply_link = f"https://azvak.az/vacancy/{vacancy_id}"
+                                # Get slug from positions array - check both direct and nested positions
+                                positions = vacancy.get('positions', [])
+                                if not positions:
+                                    # Check if positions are nested in company.vacancies
+                                    company_vacancies = company_obj.get('vacancies', []) if isinstance(company_obj, dict) else []
+                                    for cv in company_vacancies:
+                                        if cv.get('id') == vacancy_id:
+                                            positions = cv.get('positions', [])
+                                            break
+                                
+                                slug = 'vakansiya'  # Default slug
+                                if positions and len(positions) > 0:
+                                    slug = positions[0].get('slug', 'vakansiya')
+                                
+                                # Create apply link with correct format
+                                if vacancy_id and slug:
+                                    apply_link = f"https://azvak.az/vakansiyalar/{slug}/{vacancy_id}"
                                 else:
                                     apply_link = "https://azvak.az/"
                                 
@@ -133,9 +147,10 @@ async def main():
                 print("\nSample data:")
                 print(df.head())
                 
-                print("\nSample job listings:")
+                print("\nSample job listings with apply links:")
                 for i, row in df.head(5).iterrows():
                     print(f"- {row['company']}: {row['vacancy']}")
+                    print(f"  Apply: {row['apply_link']}")
             else:
                 print("No data scraped")
                 
