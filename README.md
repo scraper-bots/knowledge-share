@@ -1,14 +1,16 @@
-# Startup Details Scraper for knowledge-share.eu
+# Async Startup Details Scraper for knowledge-share.eu
 
-Simple Python script that scrapes detailed information for all startups from knowledge-share.eu without images or HTML content.
+High-performance async Python scraper that gets detailed information for all startups from knowledge-share.eu without images or HTML content.
 
 ## Features
 
-- **Complete scraping**: Gets detailed info for all startups automatically
-- **Clean data**: Removes images, HTML, and unnecessary metadata
-- **Rate limiting**: 1-second delay between requests
-- **Error handling**: Continues scraping even if individual requests fail
-- **JSON output**: Clean, structured data export
+- **🚀 Async/Concurrent**: Uses aiohttp and asyncio for high performance
+- **🔄 Retry Mechanisms**: Automatic retries with exponential backoff
+- **⚡ Batch Processing**: Processes startups in batches for efficiency  
+- **🧹 Clean Data**: Removes images, HTML, and unnecessary metadata
+- **🛡️ Rate Limiting**: Built-in semaphore and delay controls
+- **📊 Progress Tracking**: Real-time batch progress updates
+- **🎯 Error Resilience**: Continues scraping even if individual requests fail
 
 ## Installation
 
@@ -22,16 +24,31 @@ pip install -r requirements.txt
 python scraper.py
 ```
 
-The script will:
-1. Get all startup URLs from the listings API
-2. Scrape detailed information for each startup
-3. Clean the data (remove images/HTML)
-4. Save to `startup_details.json`
+The scraper will:
+1. Get all startup URLs from the listings API (async)
+2. Scrape detailed information in concurrent batches
+3. Apply retry mechanisms for failed requests
+4. Clean the data (remove images/HTML)
+5. Save to `startup_details.json`
+
+## Performance
+
+- **Concurrent requests**: Up to 10 simultaneous connections
+- **Batch processing**: 50 startups per batch
+- **Retry logic**: Up to 3 attempts with exponential backoff
+- **Rate limiting**: 0.3s delay between requests
 
 ## Output
 
 - `startup_details.json`: Complete detailed data for all startups
 
-## Rate Limiting
+## Configuration
 
-1-second delay between requests to be respectful to the server.
+Adjust performance in the scraper initialization:
+
+```python
+scraper = StartupDetailsScraper(
+    max_concurrent=10,    # Max simultaneous requests
+    request_delay=0.3     # Delay between requests (seconds)
+)
+```
