@@ -44,7 +44,7 @@ class StartupDetailsScraper:
         """Get all startup detail URLs from listings API"""
         detail_urls = []
         offset = 0
-        limit = 50
+        limit = 20
         
         logger.info("Getting startup URLs...")
         
