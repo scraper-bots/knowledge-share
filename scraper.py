@@ -27,9 +27,17 @@ class StartupDetailsScraper:
             'accept': 'application/json, text/plain, */*',
             'accept-encoding': 'gzip, deflate, br, zstd',
             'accept-language': 'en',
+            'dnt': '1',
+            'priority': 'u=1, i',
+            'referer': 'https://www.knowledge-share.eu/en/start-ups?currentPage=1',
+            'sec-ch-ua': '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
             'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
-            'referer': 'https://www.knowledge-share.eu/en/start-ups',
-            'cookie': 'sessionid=xqwssxzsexmi4kxif427o2zqlmrzgmpb'
+            'cookie': 'sessionid=xqwssxzsexmi4kxif427o2zqlmrzgmpb; _gcl_gs=2.1.k1$i1756913135$u143345135; _gcl_au=1.1.1194548550.1756913140; _clck=1ymtsdg%5E2%5Efz0%5E0%5E2072; _clsk=7ljvx4%5E1756914538231%5E5%5E1%5Ej.clarity.ms%2Fcollect; _gcl_aw=GCL.1756914642.Cj0KCQjwzt_FBhCEARIsAJGFWVnbhx7xpSLXBhvUKq7duSxG_87S4DNjtaWoy7xQ1hBQfeUM6KVh4E0aAl61EALw_wcB; _iub_cs-13261173=%7B%22timestamp%22%3A%222025-09-03T15%3A25%3A57.650Z%22%2C%22version%22%3A%221.85.0%22%2C%22purposes%22%3A%7B%221%22%3Atrue%2C%222%22%3Afalse%2C%223%22%3Afalse%2C%224%22%3Afalse%2C%225%22%3Afalse%7D%2C%22id%22%3A%2213261173%22%2C%22cons%22%3A%7B%22rand%22%3A%227026c2%22%7D%7D; _iub_previous_preference_id=%7B%2213261173%22%3A%222025%2F09%2F03%2F15%2F25%2F57%2F650%2F7026c2%22%7D'
         })
     
     def get_all_startup_urls(self):
@@ -53,6 +61,9 @@ class StartupDetailsScraper:
             
             try:
                 response = self.session.get(self.LISTINGS_API, params=params)
+                logger.debug(f"Response status: {response.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"Response text: {response.text[:500]}")
                 response.raise_for_status()
                 data = response.json()
                 
